@@ -20,11 +20,38 @@ Before the build starts, the orchestrator (the agent talking to the person) offe
 > of your space, things that are very you), images of the style or mood you like, pose or composition references,
 > and a description of what matters (what goes where, colours, the details that make it yours). I'll compose them
 > into a scene built to your vision. Talking is fastest: feel free to brain-dump by voice (dictation or voice mode),
-> rambling and out of order is fine, and I'll sort it out. **Without them:** I'll build my best interpretation from the brief. It'll be well made, but more generic, and we'll likely go a few rounds to steer it.
+> rambling and out of order is fine, and I'll sort it out. **Without them:** I'll find openly licensed reference
+> images myself, define a clear art direction for you to OK, and build from that. It'll be well made, but more
+> generic, and we'll likely go a few rounds to steer it.
 > Which would you like? (You can also send some now and more later.)
 
 If the person has already supplied rich references, skip the offer and confirm what you received instead:
 "Got 3 photos of your things, a style image, a pose reference and your description. Building to those."
+
+## If they don't give references: source them and set the direction yourself
+Never send a build agent off with no direction. Left to invent one, it averages towards a generic look. The
+orchestrator does what the person would have done:
+
+1. **Choose an art direction** that suits the subject, and make it a distinct, named style (for example "1930s WPA
+   screen print", "ukiyo-e woodblock", "Vermeer-like painterly vector"). Write the full art-direction note: style,
+   light, palette (named colours), mood, must-haves and must-avoids. If the person is reachable, show it in two or
+   three lines for a quick OK.
+2. **Source openly licensed references** from Wikimedia Commons, about five per scene: two or three for the
+   *style* (public-domain artworks in that style are ideal), two or three for the *elements* (photos of the key
+   objects or places), and one for the *pose* of each figure.
+3. **Check and record every license.** Prefer public domain, CC0 and CC BY; CC BY-SA is fine for reference files that
+   ship with attribution. Skip anything without a clear license. Record the artist, license, license URL and source
+   page per file, and use a polite User-Agent with backoff (the API rate-limits).
+4. **Download reasonable sizes**: around 1600 px on the long side, as JPEG. Look at every image on a contact sheet,
+   and drop any that don't actually show what the role needs.
+5. **Hand over** the references with a `CREDITS.md` table (file, role, artist, license, source) and the
+   art-direction note in the brief, exactly as if the person had supplied them.
+
+Commons API recipe: search files with
+`api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=<terms>&prop=imageinfo&iiprop=url|size|extmetadata&iiextmetadatafilter=LicenseShortName|Artist`,
+then fetch a resized copy and the credit fields with
+`api.php?action=query&titles=File:<name>&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1600`
+(use `thumburl`, `descriptionurl`, `Artist`, `LicenseShortName` and `LicenseUrl`).
 
 ## Brain dump, then condense
 People know far more about the scene in their head than they'll type. Suggest a **voice brain dump** (dictation or
