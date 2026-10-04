@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>scene zoom</title>
+<!-- Usage: serve this next to the scene, open zoom.html?src=scene.html&z=4&x=1200&y=800
+     z = zoom factor, x/y = top-left of the viewport in ZOOMED pixels (i.e. logical × z).
+     The scene must size its canvas from its own width (getBoundingClientRect), as scene-kit's mount does. -->
+<style>html,body{margin:0;overflow:hidden;background:#111}iframe{border:0;position:absolute;left:0;top:0}</style>
+<iframe id="f"></iframe>
+<script>
+  const q = new URLSearchParams(location.search), z = +(q.get('z') || 3), W = +(q.get('w') || 1600), H = +(q.get('h') || 900);
+  const f = document.getElementById('f');
+  f.style.width = W * z + 'px'; f.style.height = H * z + 'px';
+  f.style.transform = `translate(${-(q.get('x') || 0)}px, ${-(q.get('y') || 0)}px)`;
+  f.src = q.get('src') || 'scene.html';
+</script>
