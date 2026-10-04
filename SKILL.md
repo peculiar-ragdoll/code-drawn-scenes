@@ -16,7 +16,7 @@ First-pass scenes rarely fail for lack of drawing skill. They fail because of:
 - crammed or arbitrary placement
 
 ## Workflow
-For a one-shot result, run this workflow in an **independent subagent** with a complete brief, and stay the reviewer yourself (briefing.md: brief shape, a verbatim example, isolation).
+For a one-shot result, run this workflow in an **independent subagent** with a complete brief, and stay the reviewer yourself (briefing.md: brief shape, a verbatim example, isolation). When the builder reports, run an **adversarial reviewer** with its own persona and checklist (reviewer.md), send its findings back to the builder, and repeat until it passes.
 
 0. **Art direction** (art-direction.md). Before building, offer the person the choice: with their references (images of the elements they want, images of the style and mood, pose references, a description of what matters), you compose them into a scene built to their vision; without them, you source openly licensed references (Wikimedia Commons, with credits) and define a clear art direction yourself, which will be more generic but still well directed. Suggest a voice brain dump for speed. Condense what they send into a short art-direction note and inventory, and confirm it with them before briefing the build.
 1. **Inventory.** List every element the brief and references imply. For each one, note:
@@ -40,7 +40,7 @@ For a one-shot result, run this workflow in an **independent subagent** with a c
    - Every receding edge comes from the shared projection.
    - Every element is finished: specific subject, material, construction, attachment and story detail (detail.md).
    - Build figures from a skeleton before adding volume (figures.md). Use deterministic randomness only.
-7. **Review loop** (review.md). Then hand the scene to an **adversarial reviewer** with its own persona and checklist (reviewer.md). It checks the code (depth order against draw order, complete reflections and shadows, text) as well as the pixels, and the builder fixes until it passes. Render over http and take a full-frame screenshot, then zoom region by region with the checklist. List every defect before fixing any. Re-render and re-check touched regions and their neighbours until a full pass is clean. Then do a final pass for anything plain, generic or duplicated.
+7. **Review loop** (review.md). What you report is the finished deliverable, so review it as if nobody else will. Check the code (logical depth order against actual draw order, complete reflections and shadows, text) as well as the pixels. Render over http and take a full-frame screenshot, then zoom region by region with the checklist. List every defect before fixing any. Re-render and re-check touched regions and their neighbours until a full pass is clean. Then do a final pass for anything plain, generic or duplicated.
 8. **Report** what was verified, which taste choices were made, and the known weak spots, so feedback goes to taste rather than correctness.
 
 ## Quick reference

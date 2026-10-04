@@ -4,11 +4,13 @@ Self-review finds the defects the builder already suspects. An independent revie
 mistakes, missing reflections, broken text, impossible poses. Run one before anything reaches the person.
 
 ## Who runs it
-- **If the build agent can launch agents,** it requests the review itself before reporting, then fixes and asks
-  for a re-review.
-- **Otherwise the orchestrator runs it.** Once the builder reports, launch the reviewer, send its findings back to
+- **The orchestrator runs it, and the builder's brief doesn't mention it.** The builder should aim to ship a
+  finished piece. Knowing a reviewer comes next invites it to stop early and leave the rest for the reviewer, and
+  knowing the reviewer's list invites it to fix only what's on it. Don't claim the opposite either: leave the
+  review out of the brief.
+- **The loop:** once the builder reports, launch the reviewer, send its findings back to
   the builder (continue the same agent so it keeps its context), and repeat. Stop when the reviewer finds nothing
-  above "minor", or after three rounds.
+  above "minor", or after three rounds. Present the findings honestly: "an independent review found these; fix them."
 - The reviewer **never fixes anything**. Separating finding from fixing keeps it honest.
 
 ## The reviewer's persona (put this in its prompt)
