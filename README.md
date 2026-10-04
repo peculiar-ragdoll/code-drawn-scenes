@@ -1,5 +1,10 @@
 # code-drawn-scenes
 
+<p align="center">
+  <img src="assets/room.webp" width="100%" alt="An animated lofi room drawn entirely in Canvas2D: a person cross-legged on a sage couch with a laptop, a robot cockatiel cabled in beside them, neon signs, a Mac Studio running an agent session, string lights, a moonlit window and a wall of art">
+</p>
+<p align="center"><sub>A 16-second seamless loop, every pixel drawn in code. The scene these guidelines were distilled from. <a href="assets/room-1080p.mp4">1080p MP4</a></sub></p>
+
 A skill for Claude Code (and other Agent Skills runtimes) for building code-drawn illustrated scenes, in Canvas2D, SVG
 or WebGL-2D, that look finished on the first pass. It covers interiors, streets, landscapes, still lifes, game art,
 hero banners and ambient animated loops.
