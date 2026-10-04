@@ -19,8 +19,7 @@ Before the build starts, the orchestrator (the agent talking to the person) offe
 > I can build this two ways. **With your references:** send me images of the elements you want in it (objects, corners
 > of your space, things that are very you), images of the style or mood you like, pose or composition references,
 > and a description of what matters (what goes where, colours, the details that make it yours). I'll compose them
-> into the scene. I'll build it to your vision. **Without them:** I'll build my best
-> interpretation from the brief. It'll be well made, but more generic, and we'll likely go a few rounds to steer it.
+> into a scene built to your vision. **Without them:** I'll build my best interpretation from the brief. It'll be well made, but more generic, and we'll likely go a few rounds to steer it.
 > Which would you like? (You can also send some now and more later.)
 
 If the person has already supplied rich references, skip the offer and confirm what you received instead:
