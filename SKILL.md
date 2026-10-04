@@ -18,6 +18,7 @@ First-pass scenes rarely fail for lack of drawing skill. They fail because of:
 ## Workflow
 For a one-shot result, run this workflow in an **independent subagent** with a complete brief, and stay the reviewer yourself (briefing.md: brief shape, a verbatim example, isolation).
 
+0. **Art direction** (art-direction.md). Before building, offer the person the choice: with their references (photos of the real place and objects, style and mood images, pose references, a description of what matters), you build to their vision; without them, you build a best-effort interpretation that will be more generic. Turn what they send into a short art-direction note and confirm it with them.
 1. **Inventory.** List every element the brief and references imply. For each one, note:
    - what it is and what it's made of
    - what supports it

@@ -23,6 +23,7 @@ git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills
 | file | what |
 |---|---|
 | `SKILL.md` | trigger, workflow, quick reference, common mistakes |
+| `art-direction.md` | offering the references-or-best-effort choice up front, what each kind of reference gives, the art-direction note |
 | `briefing.md` | delegating the build to an independent subagent: brief shape, a verbatim example, isolation |
 | `perspective.md` | choosing a projection, the ground-contact table, visible faces, recipes (boxes, lying items, rounded forms, circles) |
 | `lighting.md` | layered pipeline (scene layer, light map, glows), occlusion, shadows, gentle light animation |
