@@ -33,10 +33,13 @@ You cannot judge a scene from its code. Render it and look at full size **and** 
   - leg counts are correct
   - hanging things have attachments
 - **Layering**
-  - back-to-front order holds at every overlap
+  - back-to-front order holds at every overlap. In the code, write the *logical* depth order (what is physically in front of what, including contents inside containers such as a bird behind its cage bars) next to the *actual* draw order, and fix every mismatch
   - back-limb or back-object details never draw over front ones
   - lips and rims pass in front of contents
   - highlights and outlines stay inside their shapes
+- **Reflections and shadows**
+  - everything above a reflective surface and in view appears in its reflection: sky, birds, smoke, mist, lights, signs, figures
+  - every strong light casts shadows from everything that blocks it
 - **Light**
   - every source has both cast light and a glow
   - shadowed faces use darkened own-colours
@@ -49,7 +52,9 @@ You cannot judge a scene from its code. Render it and look at full size **and** 
 - **Finish**
   - no placeholders and no duplicates
   - every element has subject, material, construction, attachment and a story detail
-  - text is legible where it should be
+  - text: every string is complete, legible, not mirrored, and not cut off by an occluder or its container
+  - no famous landmark, mountain or brand the brief didn't ask for
+  - figures: skeleton, weight and contact hold up (figures.md)
 
 ## Questions to ask before declaring done
 - If someone zooms into any 200×200 px patch, is anything wrong, plain or placeholder-ish?

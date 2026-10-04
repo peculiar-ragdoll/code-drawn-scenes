@@ -19,5 +19,6 @@
   - Faces turned away from every source use the surface's own colour darkened (×0.4–0.55), never neutral grey.
 - **Rim light** separates a subject from a bright background: clip to the shape, then stroke its outline with a gradient centred on the source.
 - **Light falling on a figure or face** comes from the source's position, fades smoothly and is masked by shape. It never cuts off in a straight line.
+- **Reflections:** a reflective surface mirrors *everything* above it that is in view: the sky and its birds, smoke, mist and fog, lights, signs and figures, as well as the big shapes. Mirror each one about the surface line, fade it with depth, and break it up with ripples. A missing reflection of a moving element is easy to overlook and obvious once seen.
 - **Shadows:** a soft contact shadow under every resting object (darker and tighter at the contact), longer cast shadows for strong directional light, all pointing away from the source.
 - **Living light is gentle:** flames flicker, bulbs breathe a few percent, signage hums with rare smooth dips, water glints, sunlight shifts slowly. Each source runs on its own phase or seed so nothing pulses in sync.

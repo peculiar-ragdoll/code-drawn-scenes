@@ -22,7 +22,8 @@ No two elements share a drawing.
 - **Materials:** metal gradients with a hard highlight, terracotta with a lit rim, velvet with lighter edges, leather wrap with cross-hatching, stone with speckle, glass with a reflection streak and tinted edges.
 - **Plants by species:** succulent rosettes (plump rounded leaves in rings, blushing tips), trailing vines (leaves along a stem), grasses (tapered blades), tree canopies (clustered lobes with a darker underside).
 - **Figures and creatures:** friendly, readable faces (a glossy eye with a catchlight beats a glowing one), plausible poses, accessories that say who they are.
-- **Text:** real words where text would be legible. Placeholder words are acceptable only when flagged to the requester.
+- **Landmarks:** invent buildings, peaks and logos. Don't reproduce a famous landmark (a well-known tower, mountain or bridge) or a brand unless the brief asks for it. A generic version averages toward the famous one, so push the silhouette away from it on purpose.
+- **Text:** real words where text would be legible. Check that every label fits its container and isn't covered by something in front of it. Placeholder words are acceptable only when flagged to the requester.
 
 ## Making it alive
 - Things that would move, move gently and independently: breathing and blinking figures, swaying plants, drifting dust, steam, smoke, water, clouds, flickering flames, scrolling screens, a slowly turning globe or fan.

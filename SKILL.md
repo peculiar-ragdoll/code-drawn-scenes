@@ -39,8 +39,8 @@ For a one-shot result, run this workflow in an **independent subagent** with a c
 6. **Build.** Start from `scene-kit.js`: projection helpers, boxes, lying-flat items, cylinders, tangent silhouettes, the lighting pipeline, the mount loop.
    - Every receding edge comes from the shared projection.
    - Every element is finished: specific subject, material, construction, attachment and story detail (detail.md).
-   - Use deterministic randomness only.
-7. **Review loop** (review.md). Render over http and take a full-frame screenshot, then zoom region by region with the checklist. List every defect before fixing any. Re-render and re-check touched regions and their neighbours until a full pass is clean. Then do a final pass for anything plain, generic or duplicated.
+   - Build figures from a skeleton before adding volume (figures.md). Use deterministic randomness only.
+7. **Review loop** (review.md). Then hand the scene to an **adversarial reviewer** with its own persona and checklist (reviewer.md). It checks the code (depth order against draw order, complete reflections and shadows, text) as well as the pixels, and the builder fixes until it passes. Render over http and take a full-frame screenshot, then zoom region by region with the checklist. List every defect before fixing any. Re-render and re-check touched regions and their neighbours until a full pass is clean. Then do a final pass for anything plain, generic or duplicated.
 8. **Report** what was verified, which taste choices were made, and the known weak spots, so feedback goes to taste rather than correctness.
 
 ## Quick reference
