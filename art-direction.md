@@ -19,11 +19,28 @@ Before the build starts, the orchestrator (the agent talking to the person) offe
 > I can build this two ways. **With your references:** send me images of the elements you want in it (objects, corners
 > of your space, things that are very you), images of the style or mood you like, pose or composition references,
 > and a description of what matters (what goes where, colours, the details that make it yours). I'll compose them
-> into a scene built to your vision. **Without them:** I'll build my best interpretation from the brief. It'll be well made, but more generic, and we'll likely go a few rounds to steer it.
+> into a scene built to your vision. Talking is fastest: feel free to brain-dump by voice (dictation or voice mode),
+> rambling and out of order is fine, and I'll sort it out. **Without them:** I'll build my best interpretation from the brief. It'll be well made, but more generic, and we'll likely go a few rounds to steer it.
 > Which would you like? (You can also send some now and more later.)
 
 If the person has already supplied rich references, skip the offer and confirm what you received instead:
 "Got 3 photos of your things, a style image, a pose reference and your description. Building to those."
+
+## Brain dump, then condense
+People know far more about the scene in their head than they'll type. Suggest a **voice brain dump** (dictation or
+voice mode): a few minutes of talking brings out the details, the likes and dislikes, the in-jokes and the "oh, and
+the cat" items much faster than writing. Don't ask them to structure it.
+
+The orchestrator does the cleanup, not the person and not the build agent. From the raw dump (plus the images):
+1. **Extract** every concrete element, placement, colour, material, mood, must-have and must-avoid.
+2. **Resolve** contradictions and repeats. Keep the latest or most specific version, and flag any real conflict as a
+   question.
+3. **Condense** the result into the art-direction note and the scene inventory: short, specific, deduplicated, in
+   the order the build needs it.
+4. **Confirm** the condensed version with the person, as a short list they can correct, before briefing the build.
+
+The build agent gets the condensed note and inventory, not the transcript. Raw dumps are long and repetitive, and an
+implementer will weigh a passing remark the same as a must-have.
 
 ## What each kind of reference gives
 | reference | gives the build | how to use it |

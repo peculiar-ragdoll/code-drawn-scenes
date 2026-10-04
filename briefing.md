@@ -11,7 +11,7 @@ A user-facing agent tends to stop early to show progress or ask, and it leans on
 1. **The deliverable, concretely:** the format (one self-contained HTML file, Canvas2D), the logical size, DPR-awareness, scaling, and the exact output path.
 2. **The scene, as an inventory:** the subject and its pose, every furniture piece and prop, the number of wall pieces, light sources, the view outside, any creatures, and "gentle animation (things that would naturally move)". Leave the specific design choices to the agent.
 3. **The quality bar, in one line:** "as high quality, detailed and correct as you can in one pass — this should look like a finished illustration, not a draft."
-4. **Art direction and references:** the art-direction note, every reference path with what it's for (layout, likeness, style, pose: structure only), and the likeness level (art-direction.md). If there are no references, say so, so the agent knows it's making the creative calls.
+4. **Art direction and references:** the art-direction note (condensed from the person's brain dump, never the raw transcript), every reference path with what it's for (layout, likeness, style, pose: structure only), and the likeness level (art-direction.md). If there are no references, say so, so the agent knows it's making the creative calls.
 5. **Constraints:** no external images or libraries, plus anything private or off-limits ("read the reference photos; never copy them into the output or publish them").
 6. **Independence:** "Do not ask questions; make sensible decisions."
 7. **The report:** "report briefly what you built and any compromises you made". This makes it self-assess, and it lists its known weak spots, which gives the main agent a head start on review.
