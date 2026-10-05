@@ -25,7 +25,8 @@ git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills
 | `SKILL.md` | trigger, workflow, quick reference, common mistakes |
 | `art-direction.md` | offering the references-or-best-effort choice up front, what each kind of reference gives, the art-direction note |
 | `figures.md` | building figures from a skeleton: proportions, weight and contact, poses that usually go wrong, hands and faces |
-| `reviewer.md` | the adversarial reviewer: persona, code checks (depth order against draw order, reflections, text), pixel checks, report format |
+| `checks.md` | proving the geometry in code: world camera, registering elements as drawn, support / join / depth-order / reflection / text checks |
+| `reviewer.md` | the adversarial reviewer: the loop and when to stop, persona, severity, code checks, pixel checks, report format |
 | `briefing.md` | delegating the build to an independent subagent: brief shape, keeping it neutral, isolation |
 | `perspective.md` | choosing a projection, the ground-contact table, visible faces, recipes (boxes, lying items, rounded forms, circles) |
 | `lighting.md` | layered pipeline (scene layer, light map, glows), occlusion, shadows, gentle light animation |
@@ -33,7 +34,7 @@ git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills
 | `composition.md` | placement, spacing, eye-level clusters, balance, framing |
 | `detail.md` | finishing every element: subject, material, construction, attachment, story detail |
 | `review.md` | the render → zoom → list → fix loop, checklist, stale-render and export notes |
-| `scene-kit.js` | Canvas2D toolkit: shared-VP projection, box / lyingFlat / cylinder helpers, tangent silhouettes, light map, flicker, mount loop |
+| `scene-kit.js` | Canvas2D toolkit: world camera, scene checks, shared-VP projection, box / lyingFlat / cylinder helpers, tangent silhouettes, light map, flicker, mount loop |
 | `zoom.html` | inspect any region of a scene page at 3–5× |
 
 ## Editing the skill

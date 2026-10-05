@@ -15,7 +15,7 @@ A user-facing agent tends to stop early to show progress or ask, and it leans on
 5. **Constraints:** no external images or libraries, plus anything private or off-limits ("read the reference photos; never copy them into the output or publish them").
 6. **Independence:** "Do not ask questions; make sensible decisions."
 7. **Finish line:** "Treat what you report as the final deliverable. Run the full review loop yourself, and fix every defect you find before reporting. A known defect is not a compromise." Don't mention the adversarial review (reviewer.md). The orchestrator runs it after the report.
-8. **The report:** "Report briefly what you built, and as compromises only what you tried and couldn't fix, with what you tried." This makes it self-assess without giving it a way to leave defects it found unfixed, and the compromises give the main agent a head start on review.
+8. **The report:** "Report briefly what you built, the check results, and as compromises only what you tried and couldn't fix, with what you tried." This makes it self-assess without giving it a way to leave defects it found unfixed, and the compromises give the main agent a head start on review.
 9. **Isolation, when results must be clean:** tell it to read and write only inside its own folder, and either name the skill to use or forbid skills and other files. Then audit its tool calls afterwards. Agents read whatever is available: finished reference code, other skills, earlier outputs.
 
 ## Keep the brief neutral

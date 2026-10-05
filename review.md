@@ -13,9 +13,10 @@ You cannot judge a scene from its code. Render it and look at full size **and** 
 - Give complex standalone pieces (figures, images within the scene) their own preview page that draws them alone at 7–12×.
 
 ## Each pass
+0. **Checks first:** run the scene's checks (checks.md) at several animation times. Fix every failure before looking at pixels, and re-run them after every fix.
 1. **Full frame:** composition, balance, dead or crowded zones, the focal point, the light mood.
 2. **Region by region:** tile the frame into 6–9 regions and zoom into each. Walk the checklist and **write down every defect before fixing any.**
-3. **Fix everything, then re-render.** Re-check the regions you touched and their neighbours, since fixes move things.
+3. **Fix everything, then re-run the checks and re-render.** Re-check the regions you touched and their neighbours, since fixes move things.
 4. **Repeat until a full pass finds nothing.** Then do one more pass looking only for missing detail: anything plain, generic or duplicated.
 
 ## Checklist

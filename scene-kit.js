@@ -106,6 +106,63 @@
     return v;
   }
 
+  // ---------- world camera (pinhole, one-point) ----------
+  // World units are metres: x right, y up from the ground, z away from the camera (z > 0). Every point goes through the
+  // same P, so receding edges share the VP by construction. S(z) is pixels per metre at depth z: derive every size from
+  // it (line widths, radii, contact shadows), never from fixed pixels.
+  function camera(VP, eyeH, f) {
+    const P = (x, y, z) => [VP.x + f * x / z, VP.y + f * (eyeH - y) / z];
+    return { VP, eyeH, f, P, S: z => f / z };
+  }
+
+  // ---------- scene checks (checks.md) ----------
+  // Register each element as you draw it, in draw order, then run() to get a list of failures. reset() every frame.
+  //   box: [x0,y0,z0,x1,y1,z1]   world bounds
+  //   top: [x0,z0,x1,z1,y]        a face other elements can rest on
+  //   rests: {on, at:[x,y,z]}     a contact point that must lie on that element's top face
+  //   joins: [[p, q], ...]        world points that must coincide (attachments, linkages, parts that meet)
+  //   inside: id                  enclosed or contained by id (exempt from the depth check against it)
+  //   overlapOk: [ids]            intended overlaps, exempt from the depth check
+  //   mirror: {y, poly}           a reflective surface at height y; poly = its screen polygon
+  //   mirrored: [ids]             what this surface's reflection actually draws; notMirrored: {id: reason}
+  //   text: {str, font, maxW}     a string that must fit its container
+  function makeChecks(cam, tol = 0.01) {
+    let els = [], byId = {};
+    const el = (id, d) => { const e = Object.assign({ id, i: els.length }, d); els.push(e); byId[id] = e; return e; };
+    const sbox = b => { const p = []; for (const x of [b[0], b[3]]) for (const y of [b[1], b[4]]) for (const z of [b[2], b[5]]) p.push(cam.P(x, y, z));
+      const xs = p.map(q => q[0]), ys = p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+    const hit = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    function run(c) {
+      const f = [];
+      for (const e of els) {
+        if (e.rests) { const s = byId[e.rests.on], [x, y, z] = e.rests.at, t = s && s.top;
+          if (!t) f.push(`${e.id}: rests on ${e.rests.on}, which has no top face`);
+          else if (Math.abs(y - t[4]) > tol || x < t[0] - tol || x > t[2] + tol || z < t[1] - tol || z > t[3] + tol)
+            f.push(`${e.id}: contact (${x}, ${y}, ${z}) is not on ${s.id}'s top face (${t.join(', ')})`); }
+        (e.joins || []).forEach(([p, q], j) => { const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); if (d > tol) f.push(`${e.id}: join ${j} is ${d.toFixed(3)} m apart`); });
+        if (e.text && c) { c.save(); c.font = e.text.font; const w = c.measureText(e.text.str).width; c.restore(); if (w > e.text.maxW) f.push(`${e.id}: "${e.text.str}" is ${w.toFixed(1)} px wide, container ${e.text.maxW}`); }
+      }
+      // draw order against depth: where two elements overlap on screen, the one drawn later must not lie wholly behind
+      for (const a of els) for (const b of els) {
+        if (!a.box || !b.box || a.i >= b.i || b.inside === a.id || a.inside === b.id) continue;
+        if ((a.overlapOk || []).includes(b.id) || (b.overlapOk || []).includes(a.id) || !hit(sbox(a.box), sbox(b.box))) continue;
+        if (b.box[2] > a.box[5] + tol) f.push(`${b.id} is drawn over ${a.id} but lies wholly behind it`);
+      }
+      // reflections: everything rising above a reflective surface whose mirror image lands on it must be drawn there
+      for (const s of els) if (s.mirror) {
+        const { y: h, poly } = s.mirror, xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+        const pb = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+        for (const e of els) {
+          if (e === s || !e.box || e.box[4] <= h + tol || (s.mirrored || []).includes(e.id) || (s.notMirrored || {})[e.id]) continue;
+          const m = [e.box[0], 2 * h - e.box[4], e.box[2], e.box[3], 2 * h - Math.max(e.box[1], h), e.box[5]];
+          if (hit(sbox(m), pb)) f.push(`${e.id}: its reflection falls on ${s.id} but isn't drawn there`);
+        }
+      }
+      return f;
+    }
+    return { el, run, reset: () => { els = []; byId = {}; }, get: id => byId[id], sbox };
+  }
+
   // ---------- mount ----------
   // drawScene(ctx, lightCtx, t, k) draws one full frame in logical units. Options: dprMax (cap for heavy scenes and
   // screenshots), fps. Exposes canvas.dataset.ms (frame cost) so the review loop can watch performance.
@@ -119,5 +176,5 @@
     (function loop(now) { const t = now / 1000; if (t - last > 1 / (o.fps || 30)) { last = t; const t0 = performance.now(); drawScene(c, L, t + 40, k); canvas.dataset.ms = Math.round(performance.now() - t0); } requestAnimationFrame(loop); })(0);
   }
 
-  window.SceneKit = { TAU, hash, mulberry, clamp, lin, rad, shade, poly, makeView, box, foreshorten, cylinder, lyingFlat, tangentAngle, tube, taper, lightMap, glow, flickerLevel, mount };
+  window.SceneKit = { TAU, hash, mulberry, clamp, lin, rad, shade, poly, makeView, box, foreshorten, cylinder, lyingFlat, tangentAngle, tube, taper, lightMap, glow, flickerLevel, camera, makeChecks, mount };
 })();
