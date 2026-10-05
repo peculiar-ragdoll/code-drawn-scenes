@@ -1,7 +1,6 @@
 # Adversarial review: a second pair of eyes with a mandate to find fault
 
-Self-review finds the defects the builder already suspects. An independent reviewer finds the rest: draw-order
-mistakes, missing reflections, broken text, impossible poses. Run one before anything reaches the person.
+Self-review finds the defects the builder already suspects. An independent reviewer finds the rest. Run one before anything reaches the person.
 
 ## Who runs it
 - **The orchestrator runs it, and the builder's brief doesn't mention it.** The builder should aim to ship a
@@ -25,14 +24,13 @@ builder's self-assessment until it has done its own pass, because that anchors i
 
 ## What it checks: in the code
 1. **Depth order against draw order.** Build two lists:
-   - the *logical* depth order: what is physically in front of what, from the scene's geometry and physics.
-     Containers and their contents count, such as a bird inside a cage behind its bars, soil inside a pot behind
-     the rim, or a face behind glasses.
+   - the *logical* depth order: what is physically nearer the camera, from the scene's geometry and physics,
+     including the parts of each compound object and anything enclosed, contained or seen through something.
    - the *actual* draw order, from the code.
 
    Every pair whose order differs is a defect, unless an occlusion clip handles it.
-2. **Reflections and shadows are complete.** For every reflective surface (water, glass, a polished floor, a wet
-   street), list what is above it and in view: the sky, birds, smoke, mist, lights, signs, figures. Each one must
+2. **Reflections and shadows are complete.** For every reflective surface, list from the code every element above
+   it that falls inside the reflected view, including thin, translucent, airborne and moving ones. Each one must
    appear in the reflection, mirrored about the surface line and correctly faded, distorted or broken up. Check the
    same for cast shadows from every strong light.
 3. **The shared projection is used everywhere.** Look for hard-coded receding edges, ellipses or perspective that
@@ -47,7 +45,7 @@ builder's self-assessment until it has done its own pass, because that anchors i
 - Take a full frame, then tile the frame into regions and zoom each one to 3–5×. Check more than one moment of the
   animation.
 - Walk every item in review.md, plus figures.md for each figure.
-- Look for **landmarks and lookalikes**: a famous building, a famous mountain or a brand the brief didn't ask for.
+- Look for **lookalikes**: a recognisable real-world landmark or brand the brief didn't ask for.
 
 ## Report format
 A numbered list, most severe first. Each entry has:

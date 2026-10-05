@@ -2,7 +2,7 @@
 
 Correctness can be checked, but whether the person loves the scene is subjective. That depends mostly on how well it
 matches the picture in their head. The strongest results come from people who hand over:
-- **images of the elements** (their things, corners of their space, pets, art on their walls, details that are "very them")
+- **images of the elements** (their things, their places, the people and animals in their life, details that are "very them")
 - **images of the style** they like
 - **a detailed description** of what's where and what matters
 - **a pose or composition reference** for the hard parts
@@ -32,8 +32,8 @@ If the person has already supplied rich references, skip the offer and confirm w
 Never send a build agent off with no direction. Left to invent one, it averages towards a generic look. The
 orchestrator does what the person would have done:
 
-1. **Choose an art direction** that suits the subject, and make it a distinct, named style (for example "1930s WPA
-   screen print", "ukiyo-e woodblock", "Vermeer-like painterly vector"). Write the full art-direction note: style,
+1. **Choose an art direction** that suits the subject, and make it a distinct, named style: a specific medium,
+   period or tradition, named precisely enough that two illustrators would picture the same thing. Write the full art-direction note: style,
    light, palette (named colours), mood, must-haves and must-avoids. If the person is reachable, show it in two or
    three lines for a quick OK.
 2. **Source openly licensed references** from Wikimedia Commons, about five per scene: two or three for the
@@ -55,8 +55,8 @@ then fetch a resized copy and the credit fields with
 
 ## Brain dump, then condense
 People know far more about the scene in their head than they'll type. Suggest a **voice brain dump** (dictation or
-voice mode): a few minutes of talking brings out the details, the likes and dislikes, the in-jokes and the "oh, and
-the cat" items much faster than writing. Don't ask them to structure it.
+voice mode): a few minutes of talking brings out the details, the likes and dislikes, the in-jokes and the "oh, and one
+more thing" items much faster than writing. Don't ask them to structure it.
 
 The orchestrator does the cleanup, not the person and not the build agent. From the raw dump (plus the images):
 1. **Extract** every concrete element, placement, colour, material, mood, must-have and must-avoid.
@@ -73,7 +73,7 @@ implementer will weigh a passing remark the same as a must-have.
 | reference | gives the build | how to use it |
 |---|---|---|
 | images of the elements (objects, corners of a space, details) | signature objects, materials, palette, clutter level, how things are arranged in real life | inventory and composition: the agent places them into one scene and redraws them in its style, without tracing |
-| photos of the person, pets or things | identifying traits (hair, glasses, tattoos, silhouette) | stylised likeness; ask how close it should be; keep private |
+| photos of the person, pets or things | identifying traits (hair, build, distinctive marks, silhouette) | stylised likeness; ask how close it should be; keep private |
 | style or mood images | medium, line weight, palette, lighting mood, texture | choose the rendering approach and palette from them |
 | pose or composition reference | proportions and how a hard pose actually works | structure only; never trace or embed (stock images are often watermarked or licensed) |
 | written description | priorities, story, must-haves, must-avoids | the inventory's "why"; settles conflicts between images |
@@ -90,7 +90,7 @@ implementer will weigh a passing remark the same as a must-have.
 
   Show it to the person before the build. Three lines they can correct are cheaper than a rebuilt scene.
 - **No style chosen yet?** Offer two or three quick style probes: small renders of the same corner in different
-  treatments, such as flat vector, lamplit vector or print-like. Let them pick before the full build.
+  treatments (for example flat, painterly and print-like). Let them pick before the full build.
 - **Likeness level is a question, not a guess.** Ask whether the person should be recognisable or a stylised nod.
   Many people prefer the general vibe over exact likeness.
 - **Privacy:** personal photos are reference material only. Keep them local, never publish, upload or embed them,

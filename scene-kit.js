@@ -16,8 +16,8 @@
   const poly = (c, pts, fill) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath(); if (fill) { c.fillStyle = fill; c.fill(); } };
 
   // ---------- one-point perspective ----------
-  // The wall plane is the reference (scale 1). VP sits on the horizon (the viewer's eye height). A piece of furniture
-  // is described by where its FRONT feet and BACK feet touch the floor (screen y). Its back is its front scaled toward
+  // The frontal reference plane has scale 1. VP sits on the horizon (the viewer's eye height). Any standing element
+  // is described by where its FRONT and BACK touch the ground (screen y). Its back is its front scaled toward
   // VP by k = (yBack - VP.y) / (yFront - VP.y). Anything at an intermediate depth t∈[0,1] uses depthScale(k, t)
   // (depth is linear in 1/scale, not in scale).
   function makeView(VP, FLOOR) {
@@ -29,7 +29,7 @@
         return { VP, FLOOR, toVP, kOf, depthScale, visibleSide };
   }
 
-  // A box (building, cabinet, crate, device, standing book): front face rect, its top (if below the horizon) or underside
+  // A box (anything with flat faces): front face rect, its top (if below the horizon) or underside
   // (if above), and the one visible side. Draw order inside: side, top, front. Returns the projected back corners for further detailing.
   function box(c, V, { x0, x1, yTop, yBot, k, front, top, side }) {
     const [bx0, byT] = V.toVP(x0, yTop, k), [bx1] = V.toVP(x1, yTop, k), [, byB] = V.toVP(x0, yBot, k);
@@ -42,11 +42,11 @@
     return { bx0, bx1, byT, byB };
   }
 
-  // A horizontal circle (table top, rim, well, fountain, wheel lying flat): its vertical radius is foreshortened.
-  // ry = rx * foreshorten(y). Calibrate `perPx` once per scene so it matches how deep the floor recedes.
+  // A horizontal circle (any circle lying flat): its vertical radius is foreshortened.
+  // ry = rx * foreshorten(y). Calibrate `perPx` once per scene so it matches how deep the ground recedes.
   const foreshorten = (V, y, perPx = 0.00045) => clamp((y - V.VP.y) * perPx, 0, 0.6);
 
-  // A cylinder (pot, cup, barrel, tower, column): body from rim to base, elliptical rim on top, curved base.
+  // A cylinder (anything round in plan): body from rim to base, elliptical rim on top, curved base.
   // Draw: body, rim top (lit), opening (dark), CONTENTS, then the rim's front lip over the contents.
   function cylinder(c, V, { x, yRim, yBase, rTop, rBot, body, rim, inside }) {
     const ryT = rTop * foreshorten(V, yRim), ryB = rBot * foreshorten(V, yBase);
@@ -56,7 +56,7 @@
     return { ryT, lip: () => { c.fillStyle = rim; c.beginPath(); c.moveTo(x - rTop, yRim); c.ellipse(x, yRim, rTop, ryT, 0, Math.PI, 0, true); c.lineTo(x + rTop, yRim + 3); c.ellipse(x, yRim + 3, rTop, ryT, 0, 0, Math.PI); c.closePath(); c.fill(); } };
   }
 
-  // Something lying flat ON a surface (book, tray, phone, paving slab): front edge toward us, its top receding to VP,
+  // Something thin lying flat ON a surface: front edge toward us, its top receding to VP,
   // the visible end showing on the side away from VP. kf = how far back it sits (1 = at the surface's front plane),
   // kb = its own depth. A thing stacked on another must have its bottom INSIDE the lower thing's top face.
   function lyingFlat(c, V, { x0, x1, yb, h, kf = 1, kb, front, top, end }) {
@@ -70,7 +70,7 @@
     return { topBack: B(x0, yb - h)[1], topFront: ay }; // a thing resting on this one sits with its foot in [topBack, topFront]
   }
 
-  // Rounded-profile extrusion (cushion, seat arm, rounded counter, car body): the silhouette between the front and back copies of
+  // Rounded-profile extrusion (any body with a curved cross-section): the silhouette between the front and back copies of
   // a corner is the TANGENT from VP to the corner circle, not a line between corner endpoints.
   function tangentAngle(V, cx, cy, r, side /* -1 or 1 */) { const a = Math.atan2(V.VP.y - cy, V.VP.x - cx), d = Math.hypot(V.VP.x - cx, V.VP.y - cy); return a + side * Math.acos(r / d); }
 
@@ -87,7 +87,7 @@
   // ---------- lighting pipeline ----------
   // 1. background (sky, view through openings) first; 2. scene layer with base colours, openings clearRect'd;
   // 3. light map = ambient fill + additive pools for every light source, multiplied over the scene layer;
-  // 4. glows with 'lighter' (lamps, flames, screens, signage with shadowBlur, sparkles, particles in light);
+  // 4. glows with 'lighter' (every emitter, thin ones with shadowBlur, specular glints, particles in light);
   // 5. vignette multiply. Every light source appears in BOTH the light map (the light it casts) and the
   // emissive pass (the light it is). Occluders between a light and a surface get a mask or a darker pool.
   function lightMap(L, W, H, k, ambient, pools) {
@@ -97,7 +97,7 @@
     L.globalCompositeOperation = 'source-over';
   }
   function glow(c, x, y, r, rgb, a) { c.fillStyle = rad(c, x, y, 0, r, [[0, `rgba(${rgb},${a})`], [1, `rgba(${rgb},0)`]]); c.fillRect(x - r, y - r, r * 2, r * 2); }
-  // Gentle flicker for signage/lamps: slow hum plus an occasional smooth dip to ~80%; give each source its own seed
+  // Gentle flicker for light sources: slow hum plus an occasional smooth dip to ~80%; give each source its own seed
   // and period so no two pulse in sync.
   function flickerLevel(t, seed, period) {
     const n = Math.floor((t + seed * 2.3) / period), u = (t + seed * 2.3) - n * period, len = 0.9;

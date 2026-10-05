@@ -26,7 +26,7 @@ git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills
 | `art-direction.md` | offering the references-or-best-effort choice up front, what each kind of reference gives, the art-direction note |
 | `figures.md` | building figures from a skeleton: proportions, weight and contact, poses that usually go wrong, hands and faces |
 | `reviewer.md` | the adversarial reviewer: persona, code checks (depth order against draw order, reflections, text), pixel checks, report format |
-| `briefing.md` | delegating the build to an independent subagent: brief shape, a verbatim example, isolation |
+| `briefing.md` | delegating the build to an independent subagent: brief shape, keeping it neutral, isolation |
 | `perspective.md` | choosing a projection, the ground-contact table, visible faces, recipes (boxes, lying items, rounded forms, circles) |
 | `lighting.md` | layered pipeline (scene layer, light map, glows), occlusion, shadows, gentle light animation |
 | `plausibility.md` | support and contact, mechanics and pivots, construction, draw order, overlaps |
@@ -35,3 +35,8 @@ git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills
 | `review.md` | the render → zoom → list → fix loop, checklist, stale-render and export notes |
 | `scene-kit.js` | Canvas2D toolkit: shared-VP projection, box / lyingFlat / cylinder helpers, tangent silhouettes, light map, flicker, mount loop |
 | `zoom.html` | inspect any region of a scene page at 3–5× |
+
+## Editing the skill
+State every rule in terms of geometry, light and the camera: depth, support, enclosure, reflection, pivots. Don't name
+scene objects, even as examples, and don't add defects from a particular test scene. A named example reads as a
+suggestion, and builders start putting that element in every scene.

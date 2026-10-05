@@ -16,7 +16,7 @@ First-pass scenes rarely fail for lack of drawing skill. They fail because of:
 - crammed or arbitrary placement
 
 ## Workflow
-For a one-shot result, run this workflow in an **independent subagent** with a complete brief, and stay the reviewer yourself (briefing.md: brief shape, a verbatim example, isolation). When the builder reports, run an **adversarial reviewer** with its own persona and checklist (reviewer.md), send its findings back to the builder, and repeat until it passes.
+For a one-shot result, run this workflow in an **independent subagent** with a complete brief, and stay the reviewer yourself (briefing.md: brief shape, keeping it neutral, isolation). When the builder reports, run an **adversarial reviewer** with its own persona and checklist (reviewer.md), send its findings back to the builder, and repeat until it passes.
 
 0. **Art direction** (art-direction.md). Before building, offer the person the choice: with their references (images of the elements they want, images of the style and mood, pose references, a description of what matters), you compose them into a scene built to their vision; without them, you source openly licensed references (Wikimedia Commons, with credits) and define a clear art direction yourself, which will be more generic but still well directed. Suggest a voice brain dump for speed. Condense what they send into a short art-direction note and inventory, and confirm it with them before briefing the build.
 1. **Inventory.** List every element the brief and references imply. For each one, note:
@@ -34,8 +34,8 @@ For a one-shot result, run this workflow in an **independent subagent** with a c
 
    Place the horizon at eye height and the vanishing point(s) on it. Write a **ground-contact table**: for every standing element, its front and back ground-contact heights. That table gives its depth scale and which sides are visible.
 3. **Layout** (composition.md). Place elements where they would really be, in sensible relationships, with breathing room. Keep focal elements clear. Record bounding boxes and check them for unintended collisions.
-4. **Light plan** (lighting.md). List the sources: sun, sky, lamps, screens, fire, signage. Give each one its cast light and its visible glow. Note the shadowed zones and how surfaces turn away from light.
-5. **Draw order** (plausibility.md). Write a back-to-front list for the scene and for every compound object.
+4. **Light plan** (lighting.md). List every light source, natural and artificial. Give each one its cast light and its visible glow. Note the shadowed zones and how surfaces turn away from light.
+5. **Draw order** (plausibility.md). Every element sits at a depth from the camera. Write a back-to-front list for the scene and for every compound object, including anything enclosed, contained or seen through something.
 6. **Build.** Start from `scene-kit.js`: projection helpers, boxes, lying-flat items, cylinders, tangent silhouettes, the lighting pipeline, the mount loop.
    - Every receding edge comes from the shared projection.
    - Every element is finished: specific subject, material, construction, attachment and story detail (detail.md).
@@ -54,14 +54,14 @@ For a one-shot result, run this workflow in an **independent subagent** with a c
 | contact | every element rests inside its support's top face, hangs from a visible attachment, or is planted in the ground |
 | motion | about the real axis or pivot; gentle; independent phases |
 | light | each source = cast light (light map, multiply) + visible glow (additive); faces turned away = own colour darkened |
-| order | far → near; within an object: back faces → contents → front faces/lips |
+| order | far → near from the camera; within an object: far faces → contents or enclosed elements → near faces and rims |
 | spacing | focal points get clear margins; fill dead zones at eye level before the edges |
 | finish | no placeholders, no duplicated motifs; every element specific |
 
 ## Common mistakes
 - **Drawing first and adding perspective later.** Retrofitting depth moves everything. Write the ground-contact table first.
-- **Applying perspective to the big pieces only.** Small items need it too: books, devices, pots, steps, signs, windows set into walls.
-- **Judging only the full frame.** Floating props, outlines poking past rounded corners and back-limb lines drawn over front limbs only show at 4–5× zoom.
+- **Applying perspective to the big pieces only.** Small items need it too: anything with a top, a side or a thickness, and every opening or recess.
+- **Judging only the full frame.** Floating elements, outlines poking past rounded corners and back-limb lines drawn over front limbs only show at 4–5× zoom.
 - **Fixing one defect and declaring done.** Every fix moves something; re-check the neighbours.
-- **Placeholders.** Coloured blobs standing in for art, signage, plants or faces, or the same drawing reused.
+- **Placeholders.** Coloured blobs standing in for a real element, or the same drawing reused.
 - **Light as decoration.** Glows with no cast light, cast light with no source, or neutral grey in shadows that should be the surface's own colour darkened.

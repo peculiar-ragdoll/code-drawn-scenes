@@ -3,31 +3,34 @@
 Before drawing any element, answer: **what holds it up, what is it made of, how is it built, and what moves and around what?**
 
 ## Support and contact
-- Everything is supported. Objects rest inside the top face of their support, at a depth within it. Feet touch the ground at the element's depth. Hanging things have a visible hook, cord, chain, nail, tape, pin or clip. Plants grow from soil; posts go into the ground.
-- Legs attach under the top they hold up, inset from its edges, and the top or apron covers their upper ends. Check the back legs after perspective, because they shift toward the VP and can poke out past the sides.
-- Cushions, pads and covers sit in contact with what they rest on, drawn from the support's top face, not floating above it.
-- Real leg and support counts: tables have 4 legs (3 or a pedestal if round), chairs and stools 4, cabinets and benches 4 corners. The back ones appear shifted toward the VP and darker.
-- Leaning things lean against something able to stop them: an object tall enough, a wall, a corner. They pivot about their bottom contact point.
-- Contents go into containers: a stem into soil behind the pot's front lip, liquid inside the rim, a pole into its socket.
+- Everything is supported. An element resting on another sits inside the support's top face, at a depth within it.
+  Whatever touches the ground touches it at the element's own depth. Hanging things have a visible attachment.
+  Growing things grow from their medium; anything planted goes into the ground.
+- Legs and posts attach under the top they hold up, inset from its edges, and the top hides their upper ends. Check
+  the back legs after perspective, because they shift toward the VP and can poke out past the sides.
+- Soft layers (pads, covers, coverings) are in contact with what they rest on, drawn from the support's top face,
+  not floating above it.
+- Supports come in the count that would actually hold the object up. Four-cornered things have four, and the back
+  ones appear shifted toward the VP and darker.
+- Leaning things lean against something able to stop them, and pivot about their bottom contact point.
+- Contents go into their containers, behind the container's near rim or wall.
 
 ## Mechanics and axes
-- Rotations use the real pivot:
-  - a globe about the axis through its mount pins
-  - a pendulum or hanging lamp about its suspension point
-  - wheels, fans and windmills about their hubs
-  - doors about their hinges
-  - flags from their pole
-  - trees from their trunk base
-- Linkages stay connected: cables run between the things they connect, ropes sag under gravity, chains hang vertically.
-- Anatomy and creatures: limbs are connected segments with joints in plausible places, hands and feet have a pose, and hybrid creatures have every part their kind needs.
-- Built objects follow their real construction: instruments, vehicles, machines, architecture (doors fit frames, stairs have consistent risers, windows have sills and frames).
+- Rotations use the real pivot: the mount, axle, hub, hinge, suspension point or base the object actually turns on.
+  Anything mounted turns about the axis its mount defines.
+- Linkages stay connected: whatever connects two things runs between them, and slack lines sag under gravity.
+- Anatomy and creatures: limbs are connected segments with joints in plausible places (figures.md), and hybrid
+  creatures have every part their kind needs.
+- Built objects follow their real construction: parts fit the parts they belong to, repeated parts are consistent,
+  and openings have frames.
 - Text on curved or turning surfaces follows the surface. Text that would read upside-down wraps out of view.
 
 ## Layering (draw order)
-Write the back-to-front list before coding. A general template:
+Every element sits at a depth from the camera, and the draw order must follow it. Write the back-to-front list before
+coding. A general template:
 1. sky and far background
-2. distant forms (hills, skyline)
-3. back plane (walls, facades) and things flat on it
+2. distant forms
+3. the back plane and anything flat on it
 4. elements against the back plane
 5. things on those elements
 6. mid-ground elements
@@ -37,12 +40,14 @@ Write the back-to-front list before coding. A general template:
 10. glows
 11. atmosphere and vignette
 
-Within compound objects: back faces → contents → front faces and lips. For example:
-- a pot: body → rim top → soil → plant → front lip
-- a seat: back → seat → inner arm faces → arm fronts → whoever sits in it
-- a figure behind a glowing sign: the sign masked by the figure's silhouette
-- crossed or overlapping limbs: the back limb's details are drawn before (or clipped inside) the back limb, never over the front one
+Within a compound object, the parts are in depth order too: its far faces, then whatever it contains or encloses,
+then its near faces and edges. That holds for any enclosure (an element seen through bars, mesh or a frame sits
+between the enclosure's far and near parts), any container (its contents sit behind the near rim), and anything
+seen through a transparent layer (drawn before the layer). For overlapping limbs, the far limb and its details are
+drawn first and never over the near one.
 
 ## Overlaps
-- Keep bounding boxes for wall-mounted items, items on surfaces and anything clustered. Nothing intersects unless intended, and intended overlaps are drawn with the correct occlusion.
-- Highlights, outlines and trims follow the shape they belong to and are clipped to it. A straight highlight on a rounded edge pokes past the corner.
+- Keep bounding boxes for clustered elements. Nothing intersects unless intended, and intended overlaps are drawn
+  with the correct occlusion.
+- Highlights, outlines and trims follow the shape they belong to and are clipped to it. A straight highlight on a
+  rounded edge pokes past the corner.
