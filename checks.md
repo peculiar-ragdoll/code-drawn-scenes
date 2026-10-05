@@ -49,6 +49,13 @@ hand-copied numbers proves nothing.
 Add scene-specific assertions the same way. Any rule that can be stated as numbers belongs here: proportions, ranges
 of motion, clearances, light directions.
 
+## The page contract
+The runner (`tools/render.mjs`) and reviewers rely on three URL parameters:
+- `?t=<seconds>` draws that moment and holds still, so frames are reproducible.
+- `?dprMax=<n>` caps the device pixel ratio.
+- `?check=1` runs `checks.run(ctx)` after drawing and stores the failures in `window.__sceneChecks` (an array of
+  strings; an empty array when everything passes).
+
 ## Run it every time
 - Run the checks at several animation times, because moving parts collide at some moments and not others. A manual
   mode (`?check=1&t=…`) that logs failures to the console works well.

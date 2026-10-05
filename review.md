@@ -3,8 +3,12 @@
 You cannot judge a scene from its code. Render it and look at full size **and** zoomed into every region.
 
 ## Setup
-- Serve the scene folder over http (`python3 -m http.server 8765`); headless browsers usually block `file://`.
-- Let the scene accept `?dprMax=1`, and cap DPR in the mount, so screenshots don't time out.
+- **Render with `tools/render.mjs`:** `node <skill>/tools/render.mjs <folder> --times 20,24.5`. It serves the folder
+  on a free port with caching off, uses a fresh browser profile, saves a scaled full frame and zoomed tiles per time
+  (`--tiles 3x3 --zoom 3`, plus `--crop x,y,w,h` for details), runs the checks, and prints check failures and console
+  errors as text. It needs Node 22+ and a Chrome or Chromium binary (`--chrome` or `$CHROME` if it can't find one).
+- The scene follows the page contract (checks.md): `?t=` draws one moment and holds still, `?dprMax=` caps the pixel
+  ratio, `?check=1` runs the checks.
 - **Never review a stale render.** Simple static servers let browsers cache scripts, so a fix can look like it didn't work. Disable the cache (CDP `Network.setCacheDisabled`) or cache-bust the script URLs (`?v=Date.now()`) before every review screenshot and export.
 - For video/GIF export, give the mount a manual mode that renders an exact time `t`. Capture frames at fixed steps (element screenshots), then assemble with ffmpeg: `palettegen`/`paletteuse` for GIF, `libx264 -crf 18` for MP4.
 - Inspect regions with `zoom.html?src=scene.html&z=4&x=…&y=…` (x and y in zoomed pixels).

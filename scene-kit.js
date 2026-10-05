@@ -131,14 +131,14 @@
     const el = (id, d) => { const e = Object.assign({ id, i: els.length }, d); els.push(e); byId[id] = e; return e; };
     const sbox = b => { const p = []; for (const x of [b[0], b[3]]) for (const y of [b[1], b[4]]) for (const z of [b[2], b[5]]) p.push(cam.P(x, y, z));
       const xs = p.map(q => q[0]), ys = p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
-    const hit = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    const hit = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3], r3 = v => +v.toFixed(3);
     function run(c) {
       const f = [];
       for (const e of els) {
         if (e.rests) { const s = byId[e.rests.on], [x, y, z] = e.rests.at, t = s && s.top;
           if (!t) f.push(`${e.id}: rests on ${e.rests.on}, which has no top face`);
           else if (Math.abs(y - t[4]) > tol || x < t[0] - tol || x > t[2] + tol || z < t[1] - tol || z > t[3] + tol)
-            f.push(`${e.id}: contact (${x}, ${y}, ${z}) is not on ${s.id}'s top face (${t.join(', ')})`); }
+            f.push(`${e.id}: contact (${[x, y, z].map(r3).join(', ')}) is not on ${s.id}'s top face (${t.map(r3).join(', ')})`); }
         (e.joins || []).forEach(([p, q], j) => { const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); if (d > tol) f.push(`${e.id}: join ${j} is ${d.toFixed(3)} m apart`); });
         if (e.text && c) { c.save(); c.font = e.text.font; const w = c.measureText(e.text.str).width; c.restore(); if (w > e.text.maxW) f.push(`${e.id}: "${e.text.str}" is ${w.toFixed(1)} px wide, container ${e.text.maxW}`); }
       }
@@ -163,18 +163,30 @@
     return { el, run, reset: () => { els = []; byId = {}; }, get: id => byId[id], sbox };
   }
 
+  // ---------- page contract (checks.md) ----------
+  // ?t=<seconds> holds one moment, ?dprMax=<n> caps the pixel ratio, ?check=1 runs the checks into window.__sceneChecks.
+  function params() {
+    const q = new URLSearchParams(location.search), num = k => (q.has(k) ? +q.get(k) : undefined);
+    return { t: num('t'), dprMax: num('dprMax'), check: q.get('check') === '1' };
+  }
+
   // ---------- mount ----------
   // drawScene(ctx, lightCtx, t, k) draws one full frame in logical units. Options: dprMax (cap for heavy scenes and
-  // screenshots), fps. Exposes canvas.dataset.ms (frame cost) so the review loop can watch performance.
+  // screenshots), fps, t (draw that one moment and hold still), checks + check (after drawing, store
+  // checks.run(ctx) in window.__sceneChecks). Pass {...SceneKit.params(), checks} to follow the page contract.
+  // Exposes canvas.dataset.ms (frame cost) so the review loop can watch performance.
   // Production: bake static layers once to offscreen canvases and redraw only what moves.
   function mount(canvas, W, H, drawScene, o = {}) {
     const c = canvas.getContext('2d'), Lc = document.createElement('canvas'), L = Lc.getContext('2d');
     let k = 1;
     function size() { const dpr = Math.min(o.dprMax || 2, window.devicePixelRatio || 1), w = Math.round(canvas.getBoundingClientRect().width * dpr) || W, h = Math.round(w * H / W); canvas.width = Lc.width = w; canvas.height = Lc.height = h; k = w / W; }
     size(); window.addEventListener('resize', size);
+    const frame = t => { const t0 = performance.now(); if (o.checks) o.checks.reset(); drawScene(c, L, t, k); canvas.dataset.ms = Math.round(performance.now() - t0);
+      if (o.check && o.checks) window.__sceneChecks = o.checks.run(c); };
+    if (o.t !== undefined) { frame(o.t); window.addEventListener('resize', () => frame(o.t)); return; }
     let last = -1;
-    (function loop(now) { const t = now / 1000; if (t - last > 1 / (o.fps || 30)) { last = t; const t0 = performance.now(); drawScene(c, L, t + 40, k); canvas.dataset.ms = Math.round(performance.now() - t0); } requestAnimationFrame(loop); })(0);
+    (function loop(now) { const t = now / 1000; if (t - last > 1 / (o.fps || 30)) { last = t; frame(t + 40); } requestAnimationFrame(loop); })(0);
   }
 
-  window.SceneKit = { TAU, hash, mulberry, clamp, lin, rad, shade, poly, makeView, box, foreshorten, cylinder, lyingFlat, tangentAngle, tube, taper, lightMap, glow, flickerLevel, camera, makeChecks, mount };
+  window.SceneKit = { TAU, hash, mulberry, clamp, lin, rad, shade, poly, makeView, box, foreshorten, cylinder, lyingFlat, tangentAngle, tube, taper, lightMap, glow, flickerLevel, camera, makeChecks, params, mount };
 })();

@@ -15,11 +15,15 @@ anything reaches the person.
 1. When the builder reports, launch a reviewer with the persona below.
 2. The reviewer returns its report as text, since subagents often can't write report files. The orchestrator saves
    it, and copies it with the reviewer's crops into the builder's folder.
-3. Send the findings back to the same builder, so it keeps its context: "an independent review found these; fix
-   them." The builder may decline a finding that conflicts with the brief, if it says why.
+3. Start a **fix pass**: a fresh agent with the fix-pass brief (briefing.md), which reads the state from the folder.
+   Resuming the original builder also works where the harness allows it, but don't depend on it. Frame the findings
+   honestly: "an independent review found these; fix them." The fix pass may decline a finding that conflicts with
+   the brief, if it says why.
 4. From round 2 on, the reviewer first does its own fresh pass. Then it reads the previous round's findings and
    marks each one fixed, not fixed or regressed.
-5. **Stop** when a round finds no blocker or major, or after three rounds.
+5. **Stop** when a round finds no blocker or major, or when the round budget is spent. The default budget is two
+   review rounds and two fix passes: build, review, fix, review, fix. After the last fix pass, its checks and its own
+   review are the final verification. Run one more review only to measure the result.
 6. **Watch the trend.** Record the counts for each round. If majors don't fall from round to round, more rounds won't
    fix it. Look at which class the findings belong to and add a check for it (checks.md), or fix the skill.
 
@@ -30,7 +34,8 @@ anything reaches the person.
 > accurate list beats a long one, and no majors is a valid result. You never fix anything. You report each defect
 > with evidence, a severity and the rule it breaks.
 
-Give it the scene path, the brief, the references, the skill folder, and its own port and browser. Don't give it the
+Give it the scene path, the brief, the references, the skill folder, and `tools/render.mjs` for rendering (it picks
+a free port and a fresh browser profile on its own). Don't give it the
 builder's self-assessment or earlier review rounds until it has done its own pass, because they anchor it.
 
 ## Severity
@@ -40,7 +45,8 @@ builder's self-assessment or earlier review rounds until it has done its own pas
 - **minor:** visible only when zoomed in, or a matter of taste.
 
 ## What it checks: in the code
-1. **Run the scene's checks** (checks.md) at several animation times. Every failure is a defect.
+1. **Run the scene's checks** with `tools/render.mjs` at several animation times. Every failure is a defect, and so
+   is a scene that doesn't expose its checks.
 2. **Audit the checks themselves.** A check that never runs, or that reads different numbers from the drawing code,
    proves nothing. Elements that are drawn but not registered aren't checked. Report missing coverage as a finding,
    naming the class of defect it leaves open.
