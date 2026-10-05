@@ -37,7 +37,7 @@ For a one-shot result, run this workflow in an **independent subagent** with a c
 4. **Light plan** (lighting.md). List every light source, natural and artificial. Give each one its cast light and its visible glow. Note the shadowed zones and how surfaces turn away from light.
 5. **Draw order** (plausibility.md). Every element sits at a depth from the camera. Write a back-to-front list for the scene and for every compound object, including anything enclosed, contained or seen through something.
 6. **Build.** Start from `scene-kit.js`: the world camera, projection helpers, boxes, lying-flat items, cylinders, tangent silhouettes, the lighting pipeline, scene checks, the mount loop.
-   - Every point and size comes from one camera, so every receding edge shares the VP.
+   - Every point and size comes from one camera, so every receding edge shares the VP. For styles that want believable depth, the optional `world-kit.js` draws boxes, faces, cylinders, shadows and reflections from world coordinates and registers them with the checks (perspective.md). Skip it for flat or deliberately cheated perspective.
    - Register each element with the checks as you draw it: its bounds, what it rests on, what it joins, what it's inside, what each reflection draws (checks.md).
    - Every element is finished: specific subject, material, construction, attachment and story detail (detail.md).
    - Build figures from a skeleton before adding volume (figures.md). Use deterministic randomness only.

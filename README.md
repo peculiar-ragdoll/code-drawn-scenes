@@ -35,6 +35,7 @@ git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills
 | `detail.md` | finishing every element: subject, material, construction, attachment, story detail |
 | `review.md` | the render → zoom → list → fix loop, checklist, stale-render and export notes |
 | `scene-kit.js` | Canvas2D toolkit: world camera, scene checks, shared-VP projection, box / lyingFlat / cylinder helpers, tangent silhouettes, light map, flicker, mount loop |
+| `world-kit.js` | optional perspective helper: pinhole, parallel and isometric cameras; boxes, faces, cylinders and circles in world units with automatic visible faces; shading from orientation; cast shadows; mirror-pass reflections; a depth queue; automatic check registration |
 | `zoom.html` | inspect any region of a scene page at 3–5× |
 
 ## Editing the skill

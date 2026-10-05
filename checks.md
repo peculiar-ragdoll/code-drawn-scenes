@@ -12,6 +12,10 @@ construction. Derive every size from `S(z)` (pixels per metre at that depth), in
 shadows. A fixed pixel size is wrong everywhere except at one depth.
 
 ## Register as you draw
+With the optional world helper (`world-kit.js`, perspective.md), every `box`, `face` and `cylinder` drawn with an id
+registers itself, and a mirror pass records what it reflected; add `rests`, `joins` and the other claims through each
+function's `extra` option, or with `el` directly. Without it, register by hand:
+
 `SceneKit.makeChecks(cam)` keeps a list of elements in draw order. Call `el(id, {...})` at the moment each element is
 drawn, with what its geometry claims:
 

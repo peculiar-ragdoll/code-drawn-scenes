@@ -44,6 +44,32 @@ Inner faces flip: an opening or recess left of the VP shows its left inner wall 
 - **Ground patterns:** any repeating lines on the ground. Lines parallel to the frontal plane stay horizontal, with spacing that grows toward the viewer. Lines running into depth converge on the VP.
 - **Leaning or rotated objects:** project their rotated corners, not the unrotated rectangle.
 
+## World helper (optional): `world-kit.js`
+For art directions that want believable depth, `world-kit.js` makes correct perspective the default rather than
+something to get right by hand. It is optional: skip it for flat styles, deliberate cheats or a projection of your own.
+Nothing else in the skill depends on it.
+
+- **Cameras:** `WorldKit.pinhole(VP, eyeHeight, focal)` for one shared vanishing point; `WorldKit.parallel({...})` or
+  `WorldKit.isometric(origin, scale)` for styles where nothing converges. The drawing functions are the same for all
+  of them.
+- **Drawing in metres:** `box`, `face`, `cylinder`, `circle` and `path` take world points. A box draws only the faces
+  turned toward the camera, so the visible sides, tops and undersides are always right. Circles and cylinder rims are
+  exact at any height. `px(metres, point)` turns a world size into pixels at that depth.
+- **Fills from orientation:** a fill can be a function of the face (`f => …`, with `f.lit` from 0 to 1 for the light's
+  direction or position). Pick one of a few flat inks by `f.lit` for print styles, or darken a colour for painterly
+  ones.
+- **Cast shadows:** `shadowPts(points, h)` and `shadowBox(c, bounds, fill)` project onto the plane y = h, away from a
+  point light or along a distant light's direction.
+- **Reflections:** `mirror(c, {id, h, outline, tint}, draw)` redraws `draw` through a camera mirrored about the plane
+  y = h, clipped to the surface. Hand it the same function that draws the scene, and everything above the surface
+  is reflected, including moving elements.
+- **Draw queue:** `later(depth, fn)` then `flush()` draws far to near. Shapes that pass through each other still need
+  splitting by hand.
+- **Checks:** pass `checks: SceneKit.makeChecks(camera)` and every `box`, `face` and `cylinder` with an id registers
+  itself in draw order, with its top face; the mirror pass records what it drew (checks.md).
+- **Limits:** Canvas2D has no perspective transform, so text and patterns on receding planes are drawn as paths
+  through `onPlane(origin, u, v)`. There is no depth buffer: draw order is still yours (or the queue's).
+
 ## Failures to check for
 - An element's top shows depth, but its contacts say it stands flush against the back plane.
 - One piece in perspective, its neighbour flat.
