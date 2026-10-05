@@ -41,7 +41,7 @@ For a one-shot result, run this workflow in an **independent subagent** with a c
    - Every element is finished: specific subject, material, construction, attachment and story detail (detail.md).
    - Build figures from a skeleton before adding volume (figures.md). Use deterministic randomness only.
 7. **Review loop** (review.md). What you report is the finished deliverable, so review it as if nobody else will. Check the code (logical depth order against actual draw order, complete reflections and shadows, text) as well as the pixels. Render over http and take a full-frame screenshot, then zoom region by region with the checklist. List every defect before fixing any. Re-render and re-check touched regions and their neighbours until a full pass is clean. Then do a final pass for anything plain, generic or duplicated.
-8. **Report** what was verified, which taste choices were made, and the known weak spots, so feedback goes to taste rather than correctness.
+8. **Report** what was verified, which taste choices were made, and the weak spots you tried and couldn't fix (with what you tried). Fix every defect you can before reporting; a known defect is not a compromise. Report this way so feedback goes to taste rather than correctness.
 
 ## Quick reference
 | concern | rule |
