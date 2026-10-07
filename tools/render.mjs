@@ -4,7 +4,7 @@
 // caching off, and uses a fresh browser profile on every run, so a render is never stale.
 //
 //   node tools/render.mjs <folder> [options]
-//     --page scene.html        the page to render (default scene.html)
+//     --page scene.html        the page to render, optionally with its own query (default scene.html)
 //     --times 20,24.5          animation times to render, in seconds (default 20)
 //     --size 1600x900          the scene's logical size (default 1600x900)
 //     --full 0.8               scale of the saved full frame (default 0.8, i.e. 1280 px wide; 0 skips it)
@@ -77,7 +77,7 @@ async function main() {
   const loaded = () => new Promise(r => { const f = m => { if (m.method === 'Page.loadEventFired' && m.sessionId === s) { listeners.splice(listeners.indexOf(f), 1); r(); } }; listeners.push(f); });
   async function open(t, dpr) {
     await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: dpr, mobile: false }, s);
-    const l = loaded(); await send('Page.navigate', { url: `http://127.0.0.1:${port}/${opt.page}?t=${t}&check=1&dprMax=${dpr}&cb=${Date.now()}${Math.random()}` }, s); await l;
+    const l = loaded(); await send('Page.navigate', { url: `http://127.0.0.1:${port}/${opt.page}${opt.page.includes('?') ? '&' : '?'}t=${t}&check=1&dprMax=${dpr}&cb=${Date.now()}${Math.random()}` }, s); await l;
     await send('Runtime.evaluate', { expression: 'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 150))))', awaitPromise: true }, s);
   }
   const shot = async (file, clip) => { const { data } = await send('Page.captureScreenshot', { format: 'png', clip: Object.assign({ scale: 1 }, clip) }, s); fs.writeFileSync(file, Buffer.from(data, 'base64')); return file; };
