@@ -14,6 +14,18 @@ objects, wrong overlaps, placeholders, crammed placement. This skill makes the a
 and draw order as data first, build every element finished, and review its own render zoomed in until a full pass is
 clean. It also covers how to brief an independent subagent to do the whole build in one go.
 
+## Examples
+
+<p align="center">
+  <img src="examples/last-bowl/preview.webp" width="100%" alt="Last Bowl: a rainy city side street at night drawn in Canvas2D in the manner of a 1930s screen-print poster, a ramen stall with a striped canopy glowing on the corner, a cook inside and a customer under an umbrella at the counter, under the title LATE NIGHT · NOODLES">
+</p>
+<p align="center"><sub><b>Last Bowl</b>, made with the skill in one go: an independent builder from a brief and six reference
+images, then two rounds of adversarial review and fresh fix passes. Animated rain, steam and lantern light.
+<a href="examples/last-bowl/scene.html">Scene</a> · <a href="examples/last-bowl/brief.md">brief</a> ·
+<a href="examples/last-bowl/CREDITS.md">reference credits</a></sub></p>
+
+More examples are in [`examples/`](examples/).
+
 ## Install
 ```sh
 git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills/code-drawn-scenes
@@ -39,6 +51,7 @@ git clone git@github.com:peculiar-ragdoll/code-drawn-scenes.git ~/.claude/skills
 | `world-kit.js` | optional perspective helper: pinhole, parallel and isometric cameras; boxes, faces, cylinders and circles in world units with automatic visible faces; shading from orientation; cast shadows; mirror-pass reflections; a depth queue; automatic check registration |
 | `tools/render.mjs` | the render-and-check runner: serves the folder with caching off, renders given times, saves the full frame, zoomed tiles and crops, prints check failures and console errors |
 | `zoom.html` | inspect any region of a scene page at 3–5× |
+| `examples/` | scenes made with the skill, for people to look at (not for builders: see its README) |
 
 ## Editing the skill
 State every rule in terms of geometry, light and the camera: depth, support, enclosure, reflection, pivots. Don't name

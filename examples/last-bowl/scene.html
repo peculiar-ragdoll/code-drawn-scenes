@@ -1,0 +1,1602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Last Bowl</title>
+<style>
+  :root { --bg: #10172a; }
+  html, body { margin: 0; background: var(--bg); }
+  body { min-height: 100vh; display: flex; align-items: center; }
+  canvas { display: block; width: 100vw; height: auto; aspect-ratio: 16 / 9; }
+</style>
+</head>
+<body>
+<canvas id="c" role="img" aria-label="A screen-print style poster: a ramen stall glowing on a rainy city corner at night, a cook at work inside and a customer with an umbrella at the counter. Title: Late Night, Noodles."></canvas>
+<script>
+(() => {
+'use strict';
+// ======================================================================================
+// LAST BOWL — a 1930s screen-print travel poster drawn in Canvas2D.
+// Six inks only, no gradients: tone comes from flat shapes, hatching and stipple.
+// World units are metres; one shared one-point projection (eye 1.6 m, VP on the horizon).
+// ======================================================================================
+const W = 1600, H = 900, TAU = Math.PI * 2, PI = Math.PI;
+const Q = new URLSearchParams(location.search);
+const DPRMAX = +(Q.get('dprMax') || 2), TFIX = Q.has('t') ? +Q.get('t') : null;
+
+// ---- the six inks ----
+const navy = '#17213b', slate = '#4f6489', teal = '#2e8487', verm = '#de4a2c', cream = '#f2e8cc', must = '#e3a933';
+
+// ---- camera: one-point perspective ----
+const F = 700, HZ = 440, VX = 640, EYE = 1.6;
+let MIR = false;                       // true = draw the scene mirrored in the ground plane (puddle)
+const P = (x, h, z) => [VX + F * x / z, HZ + F * (EYE - (MIR ? -h : h)) / z];
+const S = z => F / z;                  // px per metre at depth z
+const IMG = { x0: 20, y0: 20, x1: 1580, y1: 770 };
+
+// ---- deterministic randomness ----
+const mul = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// ---- path helpers ----
+function pth(c, pts, close = true) { c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); if (close) c.closePath(); }
+function fillP(c, pts, ink) { pth(c, pts); c.fillStyle = ink; c.fill(); }
+function strokeP(c, pts, ink, lw, close = false) { pth(c, pts, close); c.strokeStyle = ink; c.lineWidth = lw; c.stroke(); }
+const W3 = pts => pts.map(p => P(p[0], p[1], p[2]));
+function fill3(c, pts, ink) { fillP(c, W3(pts), ink); }
+function line3(c, a, b, ink, lw) { const A = P(a[0], a[1], a[2]), B = P(b[0], b[1], b[2]); c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.strokeStyle = ink; c.lineWidth = lw; c.stroke(); }
+function poly3(c, pts, ink, lw) { strokeP(c, W3(pts), ink, lw); }
+function hull(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]); if (p.length < 3) return p;
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  up.pop(); lo.pop(); return lo.concat(up);
+}
+// horizontal circle of radius r at height h, projected (angle a: 0=+x, PI/2 = far side)
+function ring(x, h, z, r, n = 28, a0 = 0, a1 = TAU) { const o = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; o.push(P(x + r * Math.cos(a), h, z + r * Math.sin(a))); } return o; }
+// vertical cylinder: silhouette = hull of both rims; visible cap drawn when given
+function cyl(c, x, z, r, h0, h1, body, cap, n = 28) {
+  const A = ring(x, h0, z, r, n), B = ring(x, h1, z, r, n);
+  fillP(c, hull(A.concat(B)), body);
+  if (cap) { if (h1 < EYE) fillP(c, B, cap); else if (h0 > EYE) fillP(c, A, cap); }
+  return { A, B };
+}
+// hatch lines inside the current path (call after building the clip path)
+function hatchRect(c, ink, gap, ang, lw, bb) {
+  const [x0, y0, x1, y1] = bb, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.hypot(x1 - x0, y1 - y0) / 2 + 2;
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  c.strokeStyle = ink; c.lineWidth = lw; c.beginPath();
+  for (let d = -R; d <= R; d += gap) { const px = cx - sa * d, py = cy + ca * d; c.moveTo(px - ca * R, py - sa * R); c.lineTo(px + ca * R, py + sa * R); }
+  c.stroke();
+}
+function hatchIn(c, pts, ink, gap, ang, lw) {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const p of pts) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
+  c.save(); pth(c, pts); c.clip(); hatchRect(c, ink, gap, ang, lw, [x0, y0, x1, y1]); c.restore();
+}
+// stipple: gen(r) returns [x, y, radius] or null
+function stipple(c, ink, n, seed, gen) { const r = mul(seed); c.fillStyle = ink; c.beginPath(); for (let i = 0; i < n; i++) { const d = gen(r); if (!d) continue; c.moveTo(d[0] + d[2], d[1]); c.arc(d[0], d[1], d[2], 0, TAU); } c.fill(); }
+// dots thinning out across a vertical band (dense at yDense)
+function stippleBand(c, ink, x0, x1, yA, yDense, n, seed, rad = 1.1) {
+  stipple(c, ink, n, seed, r => { const u = r(), y = lerp(yA, yDense, u); if (r() > Math.pow(u, 1.6)) return null; return [lerp(x0, x1, r()), y, rad * (0.7 + 0.5 * r())]; });
+}
+// halo of dots around a point (screen space), dense at r0, gone at r1 — a printed "glow" with no blur
+function halo(c, ink, x, y, r0, r1, n, seed, rad = 1.2, sx = 1, sy = 1) {
+  stipple(c, ink, n, seed, r => { const a = r() * TAU, u = r(), d = lerp(r0, r1, u); if (r() > Math.pow(1 - u, 1.8)) return null; return [x + Math.cos(a) * d * sx, y + Math.sin(a) * d * sy, rad * (0.6 + 0.6 * r())]; });
+}
+
+// halftone screen: dots on a rotated grid, dot area follows f(x,y)∈[0,1] — printed tone, no gradients
+function halftone(c, ink, bb, cell, dmax, f, ang = .5) {
+  const [x0, y0, x1, y1] = bb, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.hypot(x1 - x0, y1 - y0) / 2 + cell;
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  c.fillStyle = ink; c.beginPath();
+  for (let i = -R; i <= R; i += cell) for (let j = -R; j <= R; j += cell) {
+    const x = cx + i * ca - j * sa, y = cy + i * sa + j * ca;
+    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+    const v = f(x, y); if (v <= .02) continue;
+    const r = dmax * Math.sqrt(Math.min(1, v)); if (r < .3) continue;
+    c.moveTo(x + r, y); c.arc(x, y, r, 0, TAU);
+  }
+  c.fill();
+}
+// radial halftone glow around a point: full at r0, gone by r1 (elliptical with sx, sy)
+function glowHT(c, ink, x, y, r0, r1, cell, dmax, sx = 1, sy = 1, pow = 1.3) {
+  halftone(c, ink, [x - r1 * sx, y - r1 * sy, x + r1 * sx, y + r1 * sy], cell, dmax, (px, py) => { const d = Math.hypot((px - x) / sx, (py - y) / sy); if (d < r0 || d > r1) return 0; return Math.pow(1 - (d - r0) / (r1 - r0), pow); });
+}
+
+// ======================================================================================
+// LETTERING — a geometric poster face built from monoline strokes (unit cap height).
+// Glyphs are polylines so the same face can be laid onto any plane in the scene.
+// ======================================================================================
+const G = {};
+const def = (ch, w, f, dot) => { G[ch] = { w, f, dot }; };
+const ARC = (cx, cy, rx, ry, a0, a1, n = 28) => { const o = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; o.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]); } return o; };
+const EXT = (p, q, d) => { const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy); return [q[0] + dx / l * d, q[1] + dy / l * d]; };
+def('A', .80, (W, h) => { const a = .055, L = [h * 1.25, 1], T1 = [W / 2 - a, h], T2 = [W / 2 + a, h], R = [W - h * 1.25, 1], yb = .66, f = (1 - yb) / (1 - h);
+  return [[EXT(T1, L, .25), T1, T2, EXT(T2, R, .25)], [[L[0] + (T1[0] - L[0]) * f, yb], [R[0] + (T2[0] - R[0]) * f, yb]]]; });
+def('B', .64, (W, h) => { const m = .47, r1 = (m - h) / 2, r2 = (1 - h - m) / 2, c1 = W - .06 - h - r1, c2 = W - h - r2;
+  return [[[h, 0], [h, 1]], [[h, h], [c1, h], ...ARC(c1, h + r1, r1, r1, -PI / 2, PI / 2, 14), [h, m]], [[h, m], [c2, m], ...ARC(c2, m + r2, r2, r2, -PI / 2, PI / 2, 16), [h, 1 - h]]]; });
+def('C', .80, (W, h) => [ARC(W / 2, .5, W / 2 - h, .5 - h, .27 * PI, 1.73 * PI, 40)]);
+def('D', .74, (W, h) => { const r = .5 - h, cx = W - h - r; return [[[h, 0], [h, 1]], [[h, h], [cx, h], ...ARC(cx, .5, r, r, -PI / 2, PI / 2, 24), [h, 1 - h]]]; });
+def('E', .58, (W, h) => [[[W, h], [h, h], [h, 1 - h], [W, 1 - h]], [[h, .5], [W - .07, .5]]]);
+def('F', .56, (W, h) => [[[W, h], [h, h], [h, 1]], [[h, .52], [W - .1, .52]]]);
+def('G', .82, (W, h) => { const cx = W / 2; return [[...ARC(cx, .5, W / 2 - h, .5 - h, -.24 * PI, -2 * PI, 44), [cx + .04, .5]]]; });
+def('H', .72, (W, h) => [[[h, 0], [h, 1]], [[W - h, 0], [W - h, 1]], [[h, .5], [W - h, .5]]]);
+def('I', 0, (W, h) => [[[h, 0], [h, 1]]]);
+def('K', .68, (W, h) => [[[h, 0], [h, 1]], [[W + .04, -.04], [h + .03, .6]], [[h + .2, .44], [W + .06, 1.06]]]);
+def('L', .54, (W, h) => [[[h, 0], [h, 1 - h], [W, 1 - h]]]);
+def('M', .92, (W, h) => [[[h, 1], [h, h], [W / 2, .8], [W - h, h], [W - h, 1]]]);
+def('N', .76, (W, h) => [[[h, 1], [h, h], [W - h, 1 - h], [W - h, 0]]]);
+def('O', .90, (W, h) => [ARC(W / 2, .5, W / 2 - h, .5 - h, 0, TAU, 48)]);
+def('P', .62, (W, h) => { const r = (.56 - h) / 2, cx = W - h - r; return [[[h, 1], [h, h], [cx, h], ...ARC(cx, h + r, r, r, -PI / 2, PI / 2, 18), [h, h + 2 * r]]]; });
+def('R', .66, (W, h) => { const r = (.56 - h) / 2, cx = W - h - r - .03; return [[[h, 1], [h, h], [cx, h], ...ARC(cx, h + r, r, r, -PI / 2, PI / 2, 18), [h, h + 2 * r]], [[cx - .04, h + 2 * r], [W + .02, 1.06]]]; });
+def('S', .64, (W, h) => { const R = (1 - 2 * h) / 4, r1 = R * .94, r2 = 2 * R - r1, rx = W / 2 - h, cx = W / 2;
+  return [[...ARC(cx, h + r1, rx * .95, r1, -.13 * PI, -1.5 * PI, 26), ...ARC(cx, 1 - h - r2, rx, r2, -.5 * PI, .87 * PI, 28)]]; });
+def('T', .66, (W, h) => [[[0, h], [W, h]], [[W / 2, h], [W / 2, 1]]]);
+def('U', .72, (W, h) => { const r = W / 2 - h; return [[[h, 0], ...ARC(W / 2, 1 - h - r, r, r, PI, 0, 24), [W - h, 0]]]; });
+def('V', .76, (W, h) => [[[-.02, -.08], [W / 2 - .04, 1 - h], [W / 2 + .04, 1 - h], [W + .02, -.08]]]);
+def('W', 1.06, (W, h) => [[[-.02, -.08], [W * .25 - .03, 1 - h], [W * .25 + .03, 1 - h], [W / 2 - .025, .28], [W / 2 + .025, .28], [W * .75 - .03, 1 - h], [W * .75 + .03, 1 - h], [W + .02, -.08]]]);
+def('Y', .72, (W, h) => [[[-.02, -.06], [W / 2, .5]], [[W + .02, -.06], [W / 2, .5]], [[W / 2, .46], [W / 2, 1]]]);
+def('Z', .64, (W, h) => [[[.02, h], [W - h * 1.1, h], [h * 1.1, 1 - h], [W - .02, 1 - h]]]);
+def('0', .64, (W, h) => [ARC(W / 2, .5, W / 2 - h, .5 - h, 0, TAU, 40)]);
+def('1', .44, (W, h) => [[[.02, .24], [W - h, h * .3], [W - h, 1]]]);
+def('2', .62, (W, h) => { const r = W / 2 - h; return [[...ARC(W / 2, h + r * .95, r, r * .95, PI * 1.02, PI * 2.15, 24), [h * 1.1, 1 - h], [W, 1 - h]]]; });
+def('3', .60, (W, h) => { const R = (1 - 2 * h) / 4, r1 = R * .92, r2 = 2 * R - r1, rx = W / 2 - h; return [ARC(W / 2, h + r1, rx * .92, r1, 1.12 * PI, 2.5 * PI, 24), ARC(W / 2, 1 - h - r2, rx, r2, 1.5 * PI, 2.88 * PI, 26)]; });
+def('4', .66, (W, h) => [[[W - .17, 1], [W - .17, h * .3], [h * .8, .7], [W, .7]]]);
+def('5', .60, (W, h) => { const r = .29; return [[[W - .02, h], [h + .02, h], [h, .47], ...ARC(W / 2 - .01, 1 - h - r, W / 2 - h, r, -.78 * PI, .82 * PI, 26)]]; });
+def('6', .62, (W, h) => { const r = W / 2 - h, cy = 1 - h - r; return [[[W * .68, -.02], [h + .05, cy - .02]], ARC(W / 2, cy, r, r, 0, TAU, 36)]; });
+def('7', .60, (W, h) => [[[0, h], [W - h, h], [W * .32, 1.06]]]);
+def('8', .62, (W, h) => { const R = (1 - 2 * h) / 4, r1 = R * .86, r2 = 2 * R - r1; return [ARC(W / 2, h + r1, (W / 2 - h) * .88, r1, 0, TAU, 30), ARC(W / 2, 1 - h - r2, W / 2 - h, r2, 0, TAU, 30)]; });
+def('9', .62, (W, h) => { const r = W / 2 - h, cy = h + r; return [[[W * .32, 1.02], [W - h - .05, cy + .02]], ARC(W / 2, cy, r, r, 0, TAU, 36)]; });
+def('·', .40, null, .5);
+def('.', .26, null, .88);
+def('-', .42, (W, h) => [[[.04, .56], [W - .04, .56]]]);
+def(' ', .34, null);
+const gW = (ch, wt) => { const g = G[ch] || G[' ']; return g.w === 0 ? wt : g.w; };
+function textWidth(s, cap, wt, tr) { let w = 0; for (let i = 0; i < s.length; i++) { w += gW(s[i], wt) * cap; if (i < s.length - 1) w += tr * cap; } return w; }
+// draw text in a layout space (u right, v down); map() takes layout to screen (default identity)
+function drawText(c, s, x, y, cap, o) {
+  const wt = o.wt || .15, tr = o.track ?? .1, map = o.map || ((u, v) => [u, v]), lw = o.lw || wt * cap;
+  let u = x - (o.align === 'center' ? textWidth(s, cap, wt, tr) / 2 : o.align === 'right' ? textWidth(s, cap, wt, tr) : 0);
+  c.strokeStyle = o.ink; c.fillStyle = o.ink; c.lineWidth = lw; c.lineJoin = 'miter'; c.miterLimit = 10; c.lineCap = 'butt';
+  for (const ch of s) {
+    const g = G[ch] || G[' '], gw = gW(ch, wt);
+    if (g.dot) { const p = map(u + gw * cap / 2, y + g.dot * cap); c.beginPath(); c.arc(p[0], p[1], lw * .66, 0, TAU); c.fill(); }
+    else if (g.f) {
+      const lines = g.f(gw, wt / 2);
+      c.save(); pth(c, [map(u, y), map(u + gw * cap, y), map(u + gw * cap, y + cap), map(u, y + cap)]); c.clip(); c.beginPath();
+      for (const L of lines) {
+        L.forEach((p, i) => { const q = map(u + p[0] * cap, y + p[1] * cap); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); });
+        const a = L[0], b = L[L.length - 1]; if (Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6) c.closePath();
+      }
+      c.stroke(); c.restore();
+    }
+    u += gw * cap + tr * cap;
+  }
+}
+
+// ======================================================================================
+// SCENE DATA
+// ======================================================================================
+// Street: road x∈[-3.5, 2.3]; left sidewalk to the left building (x=-6.5); the stall's corner
+// sidewalk on the right (z<7.2), a lane crossing behind it (z 7.2–13.6), block 2 beyond (front z=15.5).
+const LB = { X: -7.0, z0: 6.5, z1: 32, H: 16 };            // left building, facade facing the street
+const B2 = { X: 6.5, zf: 15.5, z1: 30, H: 13 };             // block 2: front at zf, side facade along the street
+const FAR = { z: 48, blocks: [[-15, -6, 19], [-6, -.6, 12.5], [-.6, 5.4, 15.5], [5.4, 16, 22], [16, 30, 14]] };
+const LAMP = { x: 2.78, z: 14.0, hx: 2.02, hh: 4.42 };      // post position and lamp-head position
+const SIGN = { z: 22, x0: -6.68, x1: -5.75, h0: 3.9, h1: 8.75, th: .22, flick: 3 }; // HOTEL blade sign
+const ST = { x0: 2.8, x1: 5.2, zf: 5.5, zb: 6.3, cnt: { x0: 2.72, x1: 5.28, z0: 5.35, z1: 5.78, h: .97 },
+  roof: { x0: 2.62, x1: 5.38, zf: 5.0, zb: 7.0, hf: 2.22, hb: 2.9 }, bulb: [4.3, 1.67, 6.0],
+  noren: { x0: 2.86, x1: 5.14, z: 5.06, h0: 1.70, h1: 2.0 } };
+const LANT = { px: 5.56, ph: 2.17, z: 5.0 };               // lantern pivot (hook)
+const PUD = (() => { const o = []; for (let i = 0; i < 72; i++) { const a = i / 72 * TAU, r = 1 + .13 * Math.sin(3 * a + 1.1) + .07 * Math.sin(5 * a + 2.3) + .04 * Math.sin(8 * a); o.push([.02 + Math.cos(a) * 1.02 * r, 3.9 + Math.sin(a) * .36 * r]); } return o; })();
+const roofH = z => lerp(ST.roof.hf, ST.roof.hb, (z - ST.roof.zf) / (ST.roof.zb - ST.roof.zf));
+const wetCol = i => [teal, teal, cream, teal, must, cream, teal][i % 7];
+
+// ======================================================================================
+// STATIC LAYER: sky, city, buildings, ground (baked once per size)
+// ======================================================================================
+function drawSky(c) {
+  c.fillStyle = navy; c.fillRect(0, 0, W, H);
+  // city glow on the low rain mist: stepped bands, edges stippled
+  c.fillStyle = slate; c.fillRect(0, 262, W, HZ - 262 + 30);
+  halftone(c, slate, [0, 214, W, 263], 3.6, 1.7, (x, y) => Math.pow((y - 214) / 49, 1.4), .6);
+  c.fillStyle = teal; c.fillRect(0, 334, W, HZ - 334 + 30);
+  halftone(c, teal, [0, 296, W, 335], 3.4, 1.6, (x, y) => Math.pow((y - 296) / 39, 1.4), .6);
+  // high cloud deck with hanging bellies
+  const r = mul(5);
+  c.fillStyle = slate; c.beginPath(); c.rect(0, 0, W, 50);
+  for (let x = -40; x < W + 60; x += 58 + r() * 40) { const rx = 46 + r() * 40, ry = 16 + r() * 18; c.moveTo(x + rx, 50); c.ellipse(x, 50, rx, ry, 0, 0, TAU); }
+  c.fill();
+  c.save(); c.beginPath(); c.rect(0, 0, W, 40); c.clip(); hatchRect(c, navy, 4.2, 0, 1.6, [0, 0, W, 40]); c.restore();
+  // middle cloud bank: lit from below by the city (teal crescent under each lobe)
+  const lobes = []; for (let x = 360; x < 1180; x += 40 + r() * 34) lobes.push([x, 112 + r() * 14, 34 + r() * 30, 11 + r() * 9]);
+  c.fillStyle = teal; c.beginPath(); for (const [x, y, rx, ry] of lobes) { c.moveTo(x + rx, y + 5); c.ellipse(x, y + 5, rx, ry, 0, 0, TAU); } c.fill();
+  // the bank's body: a lobed top (heaped cumulus) as well as lobed bellies
+  c.fillStyle = slate; c.beginPath(); c.rect(340, 98, 860, 22);
+  for (let x = 330; x < 1210; x += 46 + r() * 40) { const rx = 40 + r() * 36, ry = 14 + r() * 16, y = 100 + r() * 8; c.moveTo(x + rx, y); c.ellipse(x, y, rx, ry, 0, 0, TAU); }
+  for (const [x, y, rx, ry] of lobes) { c.moveTo(x + rx, y); c.ellipse(x, y, rx, ry, 0, 0, TAU); } c.fill();
+  // rain veils: tapering strokes of varied length falling from the bellies, thinning toward the ground
+  c.strokeStyle = slate; c.lineCap = 'round';
+  for (let i = 0; i < 90; i++) { const x = 350 + r() * 840, y0 = 128 + r() * 10, L = 14 + r() * 50; let y = y0;
+    while (y < y0 + L) { const seg = 3 + r() * 9, u = (y - y0) / L; c.lineWidth = 1.3 * (1 - u * .7); c.beginPath(); c.moveTo(x + (y - 120) * .2, y); c.lineTo(x + (y + seg - 120) * .2, y + seg); c.stroke(); y += seg + 2 + u * 6 + r() * 4; } }
+  c.lineCap = 'butt';
+}
+
+function drawTowers(c) {
+  // far-off towers, flat slate cut-outs (screen space, beyond z≈200)
+  const T = [
+    [[514, 572, 214], [524, 562, 192], [535, 551, 176]],
+    [[596, 646, 238]],
+    [[662, 732, 206], [674, 720, 188], [688, 706, 178]],
+    [[752, 796, 244]],
+    [[836, 902, 200], [846, 890, 182]],
+    [[956, 1012, 226]],
+    [[1040, 1100, 246]]];
+  c.fillStyle = slate;
+  for (const tw of T) for (const [x0, x1, y0] of tw) c.fillRect(x0, y0, x1 - x0, HZ + 10 - y0);
+  // mast on the first tower
+  c.fillRect(542, 141, 2, 36);
+  // tiny windows
+  let s = 1;
+  for (const tw of T) for (const [x0, x1, y0] of tw) {
+    for (let y = y0 + 6; y < 420; y += 8) for (let x = x0 + 4; x < x1 - 4; x += 6) { const v = hash(s++ * .37); if (v < .2) { c.fillStyle = v < .07 ? cream : teal; c.fillRect(x, y, 2, 2.6); } }
+  }
+}
+
+function drawFarBlocks(c) {
+  const z = FAR.z;
+  FAR.blocks.forEach(([x0, x1, h], bi) => {
+    fill3(c, [[x0, 0, z], [x1, 0, z], [x1, h, z], [x0, h, z]], navy);
+    fill3(c, [[x0, h - .5, z], [x1, h - .5, z], [x1, h, z], [x0, h, z]], slate);           // parapet catching the glow
+    let s = bi * 100;
+    for (let fh = 4.2; fh < h - 2; fh += 3) for (let x = x0 + .6; x < x1 - .9; x += 1.7) {
+      const v = hash(++s * .713 + bi); if (v < .5) continue;
+      const ink = v > .9 ? must : v > .75 ? cream : teal;
+      fill3(c, [[x, fh, z], [x + .9, fh, z], [x + .9, fh + 1.5, z], [x, fh + 1.5, z]], ink);
+    }
+    // street-level shopfronts, a few still lit
+    for (let x = x0 + .4; x < x1 - 2.5; x += 3.4) {
+      const v = hash(x * 3.1 + bi * 7); const ink = v > .55 ? (v > .8 ? must : cream) : slate;
+      fill3(c, [[x, .3, z], [x + 2.6, .3, z], [x + 2.6, 2.6, z], [x, 2.6, z]], ink);
+      fill3(c, [[x - .1, 2.7, z], [x + 2.7, 2.7, z], [x + 2.7, 3.2, z], [x - .1, 3.2, z]], v > .5 ? verm : teal);  // awning valance
+    }
+  });
+  drawWaterTower(c);
+}
+
+function drawWaterTower(c) {
+  // timber tank on steel legs, on the roof of far block 2
+  const x = -3.3, z = 49.2, base = 12.5, legTop = 13.9, top = 17.1, R = 1.5, s = S(z);
+  // legs + bracing, standing behind the parapet of the facade (clipped where the parapet hides them)
+  const py = P(x, base, FAR.z)[1];
+  c.save(); c.beginPath(); MIR ? c.rect(0, py, W, H) : c.rect(0, 0, W, py); c.clip();
+  const legs = [[-1.1, -.9], [1.1, -.9], [-1.1, .9], [1.1, .9]];
+  for (const [dx, dz] of legs) line3(c, [x + dx, base, z + dz], [x + dx * .9, legTop, z + dz * .9], navy, Math.max(1, .14 * s));
+  line3(c, [x - 1.1, base + .2, z - .9], [x + 1.0, legTop - .1, z - .85], navy, 1);
+  line3(c, [x + 1.1, base + .2, z - .9], [x - 1.0, legTop - .1, z - .85], navy, 1);
+  line3(c, [x + R + .05, base, z - .2], [x + R + .05, legTop, z - .2], slate, .8);
+  c.restore();
+  // tank body
+  const t = cyl(c, x, z, R, legTop, top, navy, null, 32);
+  // staves (vertical slate hairlines on the visible front half)
+  c.strokeStyle = slate; c.lineWidth = .8; c.beginPath();
+  for (let a = PI * 1.08; a < PI * 1.95; a += PI / 11) { const p0 = P(x + R * Math.cos(a), legTop, z + R * Math.sin(a)), p1 = P(x + R * Math.cos(a), top, z + R * Math.sin(a)); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); }
+  c.stroke();
+  // hoops (front arcs of horizontal circles above the eye)
+  for (const hh of [14.3, 15.0, 15.7, 16.4]) strokeP(c, ring(x, hh, z, R * 1.01, 24, PI, TAU), cream, .9);
+  // conical roof + finial
+  const apex = P(x, top + 1.25, z), rim = ring(x, top, z, R * 1.08, 28);
+  fillP(c, hull(rim.concat([apex])), navy);
+  strokeP(c, ring(x, top, z, R * 1.08, 24, PI, TAU), slate, 1);
+  strokeP(c, [P(x - R * 1.08, top, z), apex, P(x + R * 1.08, top, z)], slate, 1);           // lit edges of the cone
+  line3(c, [x, top + 1.2, z], [x, top + 1.7, z], slate, 1.2);
+  { const f = P(x, top + 1.75, z); c.fillStyle = cream; c.beginPath(); c.arc(f[0], f[1], 1.1, 0, TAU); c.fill(); }
+  // ladder up the side
+  line3(c, [x + R + .05, legTop, z - .2], [x + R + .05, top, z - .2], slate, .8);
+}
+
+function windowOn(c, wall, a0, a1, h0, h1, plane, glass, seed) {
+  // plane(a, h, depth) -> world point; depth = recess into the wall
+  const q = (a, h, d) => { const w = plane(a, h, d); return P(w[0], w[1], w[2]); };
+  const rev = wall === navy ? slate : navy;                    // on a dark wall the stone reveal reads lighter
+  fillP(c, [q(a0, h0, 0), q(a1, h0, 0), q(a1, h1, 0), q(a0, h1, 0)], rev);                     // reveal
+  const g = [q(a0, h0, .16), q(a1, h0, .16), q(a1, h1, .16), q(a0, h1, .16)];
+  fillP(c, g, glass);
+  if (glass !== navy) {
+    const v = hash(seed * 1.37);
+    if (v < .3) { fillP(c, [q(a0, h1 - (h1 - h0) * .42, .16), q(a1, h1 - (h1 - h0) * .42, .16), q(a1, h1, .16), q(a0, h1, .16)], glass === teal ? slate : must); }   // half-drawn blind
+    else if (v < .45 && glass !== cream) {   // a potted plant on the inner sill, in silhouette
+      const m = a0 + (a1 - a0) * .3; fillP(c, [q(m - .1, h0, .16), q(m + .1, h0, .16), q(m + .13, h0 + .18, .16), q(m - .13, h0 + .18, .16)], navy);
+      const kind = Math.floor(hash(seed * 5.3) * 3);
+      if (kind === 0) for (const [dx, hh, lw] of [[-.16, .42, .07], [0, .55, .06], [.15, .4, .07], [-.05, .34, .08]]) { const a = q(m, h0 + .18, .16), b = q(m + dx, h0 + .18 + hh, .16); c.strokeStyle = navy; c.lineWidth = Math.max(1.2, Math.abs(a[0] - q(m + lw, h0, .16)[0]) * .9); c.lineCap = 'round'; c.beginPath(); c.moveTo(a[0], a[1]); c.quadraticCurveTo((a[0] + b[0]) / 2 + (dx > 0 ? 2 : -2), (a[1] + b[1]) / 2, b[0], b[1]); c.stroke(); c.lineCap = 'butt'; }
+      else if (kind === 1) {   // a geranium: stems from the soil, clustered leaves, a few red flower heads
+        const rr = mul(seed * 17 + 3), soil = q(m, h0 + .18, .16);
+        for (let k = 0; k < 5; k++) { const dx = (rr() - .5) * .34, hh = .16 + rr() * .3, tip = q(m + dx, h0 + .18 + hh, .16);
+          c.strokeStyle = navy; c.lineWidth = 1; c.beginPath(); c.moveTo(soil[0] + dx * 8, soil[1]); c.quadraticCurveTo(soil[0] + dx * 14, (soil[1] + tip[1]) / 2, tip[0], tip[1]); c.stroke();
+          const lr = Math.abs(q(m + .06, h0, .16)[0] - q(m, h0, .16)[0]); c.fillStyle = navy; c.beginPath(); c.ellipse(tip[0], tip[1], lr * 1.1, lr * .7, dx * 3, 0, TAU); c.fill();
+          if (k % 2 === 0) { c.fillStyle = verm; c.beginPath(); c.arc(tip[0] + lr * .4, tip[1] - lr * .7, lr * .55, 0, TAU); c.fill(); } }
+      }
+      else { c.strokeStyle = navy; c.lineWidth = 1.2; for (const dx of [-.12, 0, .12]) { const a = q(m + dx * .5, h0 + .17, .16); c.beginPath(); c.moveTo(a[0], a[1]); for (let k = 1; k <= 5; k++) { const b = q(m + dx + Math.sin(k + dx * 9) * .03, h0 + .17 - k * .06 + .06, .14); c.lineTo(b[0], b[1]); const lf = q(m + dx + .04, h0 + .17 - k * .06 + .06, .14); c.fillStyle = navy; c.beginPath(); c.ellipse(lf[0], lf[1], 1.8, 1.1, .5, 0, TAU); c.fill(); c.beginPath(); c.moveTo(b[0], b[1]); } c.stroke(); } }
+    }
+  }
+  // sash bar + muntin
+  const hm = (h0 + h1) / 2, am = (a0 + a1) / 2; c.strokeStyle = glass === navy && wall === navy ? slate : navy; c.lineWidth = 1.4; c.beginPath();
+  let p = q(a0, hm, .16); c.moveTo(p[0], p[1]); p = q(a1, hm, .16); c.lineTo(p[0], p[1]);
+  p = q(am, h0, .16); c.moveTo(p[0], p[1]); p = q(am, h1, .16); c.lineTo(p[0], p[1]); c.stroke();
+  // stone sill catching the street light
+  const s0 = q(a0 - .08, h0 - .03, -.06), s1 = q(a1 + .08, h0 - .03, -.06); c.strokeStyle = cream; c.lineWidth = 1.4; c.beginPath(); c.moveTo(s0[0], s0[1]); c.lineTo(s1[0], s1[1]); c.stroke();
+}
+
+function drawLeftBuilding(c) {
+  const { X, z0, z1, H: Hb } = LB;
+  const wall = (a, h, d = 0) => [X - d, h, a];             // a = z along the facade
+  fill3(c, [[X, 0, z0], [X, 0, z1], [X, Hb, z1], [X, Hb, z0]], slate);
+  // tone: brick courses darkening the upper storeys (converge on the VP like every receding line)
+  c.save(); pth(c, W3([[X, 3.9, z0], [X, 3.9, z1], [X, Hb, z1], [X, Hb, z0]])); c.clip();
+  c.strokeStyle = navy; c.beginPath();
+  for (let h = 4.0; h < Hb; h += .34) { const u = (h - 4) / (Hb - 4); if (h < 10 && hash(h * 13) > u * 1.4) continue; const a = P(X, h, z0), b = P(X, h, z1); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+  c.lineWidth = 1.5; c.stroke(); c.restore();
+  // windows
+  const floors = [[4.4, 6.1], [7.6, 9.3], [10.8, 12.5], [13.8, 15.0]];
+  let s = 0;
+  floors.forEach(([h0, h1], fi) => { for (let a = 9.2; a < 30.8; a += 2.5) {
+    s++; const v = hash(s * 2.17 + 4); let glass = v < .42 ? navy : v < .72 ? teal : v < .9 ? cream : must; if (a < 10.5 && fi > 0) glass = v < .6 ? navy : teal;
+    windowOn(c, slate, a, a + 1.3, h0, h1, wall, glass, s);
+  } });
+  // the near end of the facade falls into shadow: stepped navy hatching
+  for (const [za, zb, gap] of [[z0, 9.0, 2.2], [9.0, 11.6, 3.6]]) { const q = W3([[X, 3.9, za], [X, 3.9, zb], [X, Hb, zb], [X, Hb, za]]); hatchIn(c, q, navy, gap, -.9, 1.2); }
+  // belt course over the shopfronts + cornice (soffits visible: above the eye)
+  fill3(c, [[X, 3.8, z0], [X, 3.8, z1], [X + .22, 3.8, z1], [X + .22, 3.8, z0]], navy);
+  fill3(c, [[X + .22, 3.8, z0], [X + .22, 3.8, z1], [X + .22, 4.05, z1], [X + .22, 4.05, z0]], teal);
+  fill3(c, [[X, 15.3, z0], [X, 15.3, z1], [X + .4, 15.3, z1], [X + .4, 15.3, z0]], navy);
+  fill3(c, [[X + .4, 15.3, z0], [X + .4, 15.3, z1], [X + .4, 16.0, z1], [X + .4, 16.0, z0]], teal);
+  for (let a = z0; a < z1; a += .5) fill3(c, [[X + .4, 15.3, a], [X + .4, 15.3, a + .2], [X + .4, 15.5, a + .2], [X + .4, 15.5, a]], navy);   // dentils
+  // ground-floor shopfronts
+  fill3(c, [[X, 0, z0], [X, 0, z1], [X, 3.8, z1], [X, 3.8, z0]], navy);
+  // tiled plinth along the whole ground floor (glazed tiles: teal with navy joints, a cream bead on top)
+  fill3(c, [[X + .02, 0, z0], [X + .02, 0, z1], [X + .02, .5, z1], [X + .02, .5, z0]], teal);
+  c.strokeStyle = navy; c.lineWidth = 1.4; c.beginPath();
+  for (let a = z0; a < 15; a += .3) { const p0 = P(X + .02, 0, a), p1 = P(X + .02, .5, a); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); }
+  { const p0 = P(X + .02, .25, z0), p1 = P(X + .02, .25, z1); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); } c.stroke();
+  poly3(c, [[X + .03, .5, z0], [X + .03, .5, z1]], cream, 1.4);
+  // the near doorway: a deep recess whose far jamb (facing us) shows, a panelled door, lit fanlight, enamel number plate
+  const d0 = 7.95, d1 = 9.15, dd = .35;
+  fill3(c, [[X, .5, d0], [X, .5, d1], [X, 3.0, d1], [X, 3.0, d0]], navy);                                  // opening
+  fill3(c, [[X, .5, d1], [X - dd, .5, d1], [X - dd, 3.0, d1], [X, 3.0, d1]], slate);                        // far jamb, lit
+  fill3(c, [[X - dd, .5, d0 + .12], [X - dd, .5, d1 - .08], [X - dd, 2.35, d1 - .08], [X - dd, 2.35, d0 + .12]], verm);   // the door
+  for (const [ha, hb] of [[.7, 1.4], [1.55, 2.15]]) for (const [za, zb] of [[d0 + .25, d0 + .55], [d0 + .7, d1 - .2]]) fill3(c, [[X - dd + .01, ha, za], [X - dd + .01, ha, zb], [X - dd + .01, hb, zb], [X - dd + .01, hb, za]], navy);
+  fill3(c, [[X - dd, 2.45, d0 + .12], [X - dd, 2.45, d1 - .08], [X - dd, 2.9, d1 - .08], [X - dd, 2.9, d0 + .12]], must);   // fanlight
+  for (const a of [8.35, 8.6, 8.85]) line3(c, [X - dd + .01, 2.45, a], [X - dd + .01, 2.9, a], navy, 1.5);
+  { const k = P(X - dd + .01, 1.45, d1 - .2); c.fillStyle = must; c.beginPath(); c.arc(k[0], k[1], 2.2, 0, TAU); c.fill(); }   // brass knob
+  fill3(c, [[X + .03, 3.05, 8.25], [X + .03, 3.05, 8.75], [X + .03, 3.45, 8.75], [X + .03, 3.45, 8.25]], cream);
+  drawText(c, '21', 0, 0, .26, { wt: .2, track: .1, ink: navy, map: (u, v) => P(X + .04, 3.38 - v, 8.33 + u), lw: 2 });
+  fill3(c, [[X + .12, .5, d0 - .1], [X + .12, .5, d1 + .05], [X + .12, .62, d1 + .05], [X + .12, .62, d0 - .1]], slate);   // stone step
+  // rolled steel shutter
+  fill3(c, [[X, .1, 9.4], [X, .1, 15.6], [X, 3.0, 15.6], [X, 3.0, 9.4]], slate);
+  c.strokeStyle = navy; c.lineWidth = 1.6; c.beginPath(); for (let h = .25; h < 3; h += .24) { const a = P(X, h, 9.4), b = P(X, h, 15.6); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  fill3(c, [[X + .05, 3.0, 9.3], [X + .05, 3.0, 15.7], [X + .05, 3.42, 15.7], [X + .05, 3.42, 9.3]], teal);   // fascia over the shutter
+  drawText(c, 'HARDWARE', 0, 0, .27, { wt: .16, track: .3, ink: navy, map: (u, v) => P(X + .06, 3.35 - v, 9.75 + u), lw: 2.2 });
+  // shutter handle + padlock at the bottom rail, two pasted handbills
+  fill3(c, [[X + .03, .28, 12.2], [X + .03, .28, 12.9], [X + .03, .36, 12.9], [X + .03, .36, 12.2]], navy);
+  fill3(c, [[X + .04, .12, 12.5], [X + .04, .12, 12.62], [X + .04, .26, 12.62], [X + .04, .26, 12.5]], must);
+  for (const [za, zb, ha, hb, ink, seed] of [[10.2, 11.0, 1.3, 2.4, cream, 3], [11.25, 11.95, 1.15, 2.15, must, 7]]) {
+    fill3(c, [[X + .04, ha, za], [X + .04, ha, zb], [X + .04, hb, zb], [X + .04, hb, za]], ink);
+    const r = mul(seed); for (let k = 0; k < 4; k++) { const hh = hb - .18 - k * .22; poly3(c, [[X + .045, hh, za + .08], [X + .045, hh, za + .08 + (zb - za - .16) * (k ? .5 + r() * .5 : 1)]], k ? navy : verm, k ? 1 : 2.2); }
+    fill3(c, [[X + .045, ha + .08, za + .1], [X + .045, ha + .08, zb - .1], [X + .045, ha + .3, zb - .1], [X + .045, ha + .3, za + .1]], ink === cream ? teal : verm);
+  }
+  // hotel entrance: lit doorway, two wall lamps
+  fill3(c, [[X, 0, 20.6], [X, 0, 23.0], [X, 2.7, 23.0], [X, 2.7, 20.6]], teal);
+  fill3(c, [[X - .25, .05, 20.8], [X - .25, .05, 22.8], [X - .25, 2.45, 22.8], [X - .25, 2.45, 20.8]], cream);
+  line3(c, [X - .25, .05, 21.8], [X - .25, 2.45, 21.8], navy, 1.2);
+  line3(c, [X - .25, 1.9, 20.8], [X - .25, 1.9, 22.8], navy, 1);
+  for (const a of [20.3, 23.3]) { const p = P(X + .1, 2.3, a); rings(c, p[0], p[1], [[7, teal], [1.9, cream]]); }
+  // dark shop with one dim window
+  fill3(c, [[X - .1, .5, 25.2], [X - .1, .5, 29.8], [X - .1, 2.9, 29.8], [X - .1, 2.9, 25.2]], slate);
+  fill3(c, [[X - .1, .5, 26.6], [X - .1, .5, 28.6], [X - .1, 2.5, 28.6], [X - .1, 2.5, 26.6]], teal);
+  line3(c, [X - .1, 1.5, 26.6], [X - .1, 1.5, 28.6], navy, 1);
+  // street number plate & drainpipe
+  line3(c, [X + .06, 0, 18.8], [X + .06, Hb, 18.8], navy, 1.6);
+  for (let h = 1; h < Hb; h += 2.2) line3(c, [X, h, 18.7], [X + .1, h, 18.9], navy, 1);
+  drawFireEscape(c);
+}
+
+function drawFireEscape(c) {
+  const X = LB.X, out = LB.X + 1.15, z0 = 11.4, z1 = 16.6, lv = [4.05, 7.25, 10.45, 13.65];
+  const lw = z => Math.max(1.3, .05 * S(z));
+  lv.forEach((L, i) => {
+    // slab seen from below with its grating
+    fill3(c, [[X, L, z0], [out, L, z0], [out, L, z1], [X, L, z1]], navy);
+    c.strokeStyle = slate; c.lineWidth = 1.4; c.beginPath();
+    for (let z = z0 + .4; z < z1; z += .4) { const a = P(X + .05, L, z), b = P(out - .05, L, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+    c.stroke();
+    fill3(c, [[out, L - .1, z0], [out, L - .1, z1], [out, L, z1], [out, L, z0]], navy);
+    // railing
+    poly3(c, [[X, L + 1, z0], [out, L + 1, z0], [out, L + 1, z1], [X, L + 1, z1]], navy, lw(z0) * 1.4);
+    poly3(c, [[out, L + .5, z0], [out, L + .5, z1]], navy, lw(z0));
+    c.strokeStyle = navy; c.lineWidth = lw(z1) * .8; c.beginPath();
+    for (let z = z0; z <= z1 + .01; z += .37) { const a = P(out, L, z), b = P(out, L + 1, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+    for (const z of [z0, z1]) for (let x = X + .38; x < out; x += .38) { const a = P(x, L, z), b = P(x, L + 1, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+    c.stroke();
+    poly3(c, [[out, L + 1.02, z0], [out, L + 1.02, z1]], cream, .8);   // wet glint on the top rail
+    // stair up to the next platform
+    if (i < lv.length - 1) {
+      const zs = 16.15, ze = 12.0, xa = X + .3, xb = X + .88, U = lv[i + 1];
+      poly3(c, [[xa, L, zs], [xa, U, ze]], navy, lw(14));
+      poly3(c, [[xb, L, zs], [xb, U, ze]], navy, lw(14));
+      poly3(c, [[xb, L + .9, zs], [xb, U + .9, ze]], navy, lw(14) * .8);
+      c.strokeStyle = navy; c.lineWidth = lw(14) * .8; c.beginPath();
+      for (let k = 1; k < 15; k++) { const u = k / 15, z = lerp(zs, ze, u), h = lerp(L, U, u), a = P(xa, h, z), b = P(xb, h, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+      c.stroke();
+    }
+  });
+  // drop ladder, retracted
+  const xd = X + .95;
+  poly3(c, [[xd, lv[0], 12.0], [xd, 1.95, 12.0]], navy, lw(12));
+  poly3(c, [[xd, lv[0], 12.45], [xd, 1.95, 12.45]], navy, lw(12));
+  for (let h = 2.1; h < lv[0]; h += .3) poly3(c, [[xd, h, 12.0], [xd, h, 12.45]], navy, lw(12) * .8);
+  // wall brackets
+  for (const L of lv) for (const z of [z0 + .2, z1 - .2]) poly3(c, [[X, L - .6, z], [out + .05, L - .02, z]], navy, lw(z));
+}
+
+function drawBlock2(c) {
+  const { X, zf, z1, H: Hb } = B2;
+  // side facade along the street (slate, faces the lamp)
+  fill3(c, [[X, 0, zf], [X, 0, z1], [X, Hb, z1], [X, Hb, zf]], slate);
+  c.save(); pth(c, W3([[X, 4, zf], [X, 4, z1], [X, Hb, z1], [X, Hb, zf]])); c.clip(); c.strokeStyle = navy; c.lineWidth = 1.5; c.beginPath();
+  for (let h = 9.6; h < Hb; h += .38) { const a = P(X, h, zf), b = P(X, h, z1); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke(); c.restore();
+  const side = (a, h, d = 0) => [X + d, h, a];
+  let s = 50;
+  for (const [h0, h1] of [[4.4, 6.1], [7.6, 9.3], [10.8, 12.3]]) for (let a = 16.4; a < 29; a += 2.6) {
+    s++; const v = hash(s * 1.91); windowOn(c, slate, a, a + 1.4, h0, h1, side, v < .45 ? navy : v < .8 ? teal : cream, s);
+  }
+  fill3(c, [[X, 0, zf], [X, 0, z1], [X, 3.8, z1], [X, 3.8, zf]], navy);
+  fill3(c, [[X + .12, .3, 16.4], [X + .12, .3, 19.6], [X + .12, 2.8, 19.6], [X + .12, 2.8, 16.4]], teal);   // corner café window
+  line3(c, [X + .12, 1.0, 16.4], [X + .12, 1.0, 19.6], navy, 1);
+  fill3(c, [[X + .1, .1, 21], [X + .1, .1, 28.6], [X + .1, 2.9, 28.6], [X + .1, 2.9, 21]], slate);
+  c.strokeStyle = navy; c.lineWidth = 1.5; c.beginPath(); for (let h = .25; h < 2.9; h += .26) { const a = P(X + .1, h, 21), b = P(X + .1, h, 28.6); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  fill3(c, [[X, 12.6, zf], [X, 12.6, z1], [X - .35, 12.6, z1], [X - .35, 12.6, zf]], navy);   // cornice soffit
+  fill3(c, [[X - .35, 12.6, zf], [X - .35, 12.6, z1], [X - .35, Hb, z1], [X - .35, Hb, zf]], teal);
+
+  // front facade (navy brick, facing us, behind the stall)
+  const x1 = 24;
+  fill3(c, [[X, 0, zf], [x1, 0, zf], [x1, Hb + 3, zf], [X, Hb + 3, zf]], navy);
+  // brick tone band: slate courses fading upward (a hatched band)
+  c.save(); pth(c, W3([[X, 3.9, zf], [x1, 3.9, zf], [x1, 7.2, zf], [X, 7.2, zf]])); c.clip(); c.strokeStyle = slate; c.lineWidth = 1; c.beginPath();
+  for (let h = 3.95; h < 7.2; h += .2) { if (hash(h * 31) < (h - 3.9) / 3.3) continue; const a = P(X, h, zf), b = P(x1, h, zf); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke(); c.restore();
+  const front = (a, h, d = 0) => [a, h, zf + d];
+  s = 90;
+  for (const [h0, h1] of [[4.4, 6.1], [7.6, 9.3], [10.8, 12.5]]) for (let a = 7.3; a < 21.5; a += 2.4) {
+    s++; const v = hash(s * 1.53 + 2); windowOn(c, navy, a, a + 1.35, h0, h1, front, s === 95 ? must : v < .4 ? navy : v < .66 ? teal : v < .86 ? cream : must, s);
+  }
+  // a painted wall sign from another era, faded into the brick
+  { const zz = zf - .001, map = (u, v) => P(7.4 + u, 7.25 - v, zz);
+    poly3(c, [[7.2, 7.4, zz], [20.9, 7.4, zz], [20.9, 6.2, zz], [7.2, 6.2, zz], [7.2, 7.4, zz]], slate, 1);
+    drawText(c, 'PRESSING · REPAIRS', 6.65, .2, .74, { wt: .12, track: .22, ink: slate, map, lw: .12 * .74 * S(zf), align: 'center' });
+    c.save(); pth(c, W3([[7.2, 7.4, zz], [20.9, 7.4, zz], [20.9, 6.2, zz], [7.2, 6.2, zz]])); c.clip(); c.strokeStyle = navy; c.lineWidth = 1.2; c.beginPath();
+    for (let h = 6.25; h < 7.4; h += .2) { const a = P(7.2, h, zz), b = P(20.9, h, zz); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+    const r = mul(808); for (let i = 0; i < 160; i++) { const p = P(7.2 + r() * 13.7, 6.2 + r() * 1.2, zz); c.moveTo(p[0], p[1]); c.lineTo(p[0] + 3 + r() * 16, p[1] + (r() - .5)); } c.stroke(); c.restore(); }
+  // a window with someone reading by a lamp (story detail), on the first floor right
+  { const a = 16.9, h0 = 4.4; fill3(c, [[a + .25, h0 + .05, zf + .17], [a + .6, h0 + .05, zf + .17], [a + .55, h0 + .62, zf + .17], [a + .43, h0 + .78, zf + .17], [a + .3, h0 + .62, zf + .17]], navy); }
+  // belt course and shopfronts
+  fill3(c, [[X, 3.8, zf], [x1, 3.8, zf], [x1, 4.05, zf], [X, 4.05, zf]], slate);
+  fill3(c, [[X, 3.8, zf], [x1, 3.8, zf], [x1, 3.8, zf + .25], [X, 3.8, zf + .25]], navy);
+  fill3(c, [[16.2, .1, zf + .05], [22.6, .1, zf + .05], [22.6, 3.0, zf + .05], [16.2, 3.0, zf + .05]], slate);   // shutter
+  c.strokeStyle = navy; c.lineWidth = 1.5; c.beginPath(); for (let h = .25; h < 3; h += .26) { const a = P(16.2, h, zf + .05), b = P(22.6, h, zf + .05); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  fill3(c, [[16.1, 3.0, zf], [22.7, 3.0, zf], [22.7, 3.3, zf], [16.1, 3.3, zf]], teal);
+  // corner doorway with a lit transom
+  fill3(c, [[6.9, 0, zf + .2], [8.0, 0, zf + .2], [8.0, 2.5, zf + .2], [6.9, 2.5, zf + .2]], slate);
+  fill3(c, [[6.95, 2.05, zf + .2], [7.95, 2.05, zf + .2], [7.95, 2.42, zf + .2], [6.95, 2.42, zf + .2]], cream);
+  line3(c, [7.45, 2.05, zf + .2], [7.45, 2.42, zf + .2], navy, 1);
+  // drainpipe on the corner
+  line3(c, [X + .15, 0, zf - .05], [X + .15, Hb + 2, zf - .05], slate, Math.max(1.2, .1 * S(zf)));
+  for (let h = .8; h < Hb; h += 2) line3(c, [X + .05, h, zf - .05], [X + .25, h, zf - .05], navy, 1);
+}
+
+function drawGroundBase(c) {
+  // asphalt everywhere first (drawn before the near buildings, which stand on it)
+  const yb = P(0, 0, FAR.z)[1] - .3;
+  c.fillStyle = navy; c.fillRect(0, yb, W, H - yb);
+  const sw = .15;
+  // far side of the avenue
+  fill3(c, [[-80, sw, 46], [80, sw, 46], [80, sw, 48], [-80, sw, 48]], slate);
+  fill3(c, [[-80, 0, 46], [80, 0, 46], [80, sw, 46], [-80, sw, 46]], teal);
+  // wet asphalt holds the glow of the sky toward the far end: a halftone band fading toward us
+  c.save(); pth(c, W3([[-3.5, 0, 3], [2.3, 0, 3], [2.3, 0, 46], [-3.5, 0, 46]])); c.clip();
+  const ya = P(0, 0, 46)[1], yb2 = P(0, 0, 9)[1];
+  halftone(c, slate, [300, ya, 1100, yb2], 3.4, 1.55, (x, y) => Math.pow(1 - (y - ya) / (yb2 - ya), 1.6), .7);
+  c.restore();
+  // crossing at the mouth of our street
+  for (let x = -3.3; x < 2.1; x += .75) fill3(c, [[x, 0, 30.4], [x + .42, 0, 30.4], [x + .42, 0, 32.6], [x, 0, 32.6]], cream);
+  // avenue centre line
+  for (let x = -40; x < 40; x += 3) fill3(c, [[x, 0, 39.6], [x + 1.6, 0, 39.6], [x + 1.6, 0, 39.9], [x, 0, 39.9]], slate);
+}
+function drawGround(c) {
+  const sw = .15; // kerb height
+  // left sidewalk
+  fill3(c, [[LB.X, sw, 3], [-3.5, sw, 3], [-3.5, sw, 30], [LB.X, sw, 30]], slate);
+  fill3(c, [[-3.5, 0, 3], [-3.5, 0, 30], [-3.5, sw, 30], [-3.5, sw, 3]], teal);
+  poly3(c, [[-3.5, sw, 3], [-3.5, sw, 30]], cream, 1);
+  // corner sidewalk (stall) with a rounded kerb into the lane
+  const cornerA = [];
+  cornerA.push([2.3, sw, 3]); for (let i = 0; i <= 8; i++) { const a = PI + i / 8 * PI / 2; cornerA.push([2.9 + .6 * Math.cos(a), sw, 6.6 - .6 * Math.sin(a)]); }
+  cornerA.push([40, sw, 7.2]); cornerA.push([40, sw, 3]);
+  fill3(c, cornerA, slate);
+  fill3(c, [[2.3, 0, 3], [2.3, 0, 6.6], [2.3, sw, 6.6], [2.3, sw, 3]], teal);
+  poly3(c, [[2.3, sw, 3], [2.3, sw, 6.6]], cream, 1.2);
+  // block-2 sidewalk (far side of the lane)
+  const far = [[2.3, sw, 30]]; for (let i = 0; i <= 8; i++) { const a = PI - i / 8 * PI / 2; far.push([2.9 + .6 * Math.cos(a), sw, 14.2 - .6 * Math.sin(a)]); }
+  far.push([40, sw, 13.6], [40, sw, B2.zf], [B2.X, sw, B2.zf], [B2.X, sw, 30]);
+  fill3(c, far, slate);
+  fill3(c, [[2.3, 0, 14.2], [2.3, 0, 30], [2.3, sw, 30], [2.3, sw, 14.2]], teal);
+  fill3(c, [[2.9, 0, 13.6], [40, 0, 13.6], [40, sw, 13.6], [2.9, sw, 13.6]], teal);
+  poly3(c, [[2.9, sw, 13.6], [40, sw, 13.6]], cream, .9);
+  // paving joints
+  c.strokeStyle = navy; c.lineWidth = 1.4; c.beginPath();
+  const seg = (a, b) => { const A = P(...a), B = P(...b); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); };
+  for (let z = 3.6; z < 30; z += 1.2) seg([LB.X, sw, z], [-3.5, sw, z]);
+  seg([-5.25, sw, 3], [-5.25, sw, 30]);
+  for (let z = 3.3; z < 7.2; z += .9) seg([2.45, sw, z], [30, sw, z]);
+  for (let x = 3.2; x < 30; x += .9) seg([x, sw, 3], [x, sw, 7.2]);
+  for (let z = 16; z < 30; z += 1.4) seg([2.3, sw, z], [B2.X, sw, z]);
+  c.stroke();
+  // wet tyre tracks: two worn lanes of sheen running into the distance, broken into flat slate bars
+  { const r = mul(9090); c.fillStyle = slate;
+    for (const xc of [-2.55, -1.15]) for (let z = 3.2; z < 34; ) { const L = (.6 + r() * 1.8) * (z / 6), w = .2; if (r() > .3) fill3(c, [[xc - w / 2, 0, z], [xc + w / 2, 0, z], [xc + w / 2 + .02, 0, z + L], [xc - w / 2 + .02, 0, z + L]], slate); z += L + (.3 + r() * 1.2) * (z / 6); } }
+  // a steam-main vent cover in the near road (its plume is animated)
+  fillP(c, ring(-1.75, 0, 5.0, .4, 36), slate);
+  strokeP(c, ring(-1.75, 0, 5.0, .31, 36), navy, 1.2, true);
+  c.save(); pth(c, ring(-1.75, 0, 5.0, .3, 36)); c.clip(); c.strokeStyle = navy; c.lineWidth = 1.1; c.beginPath();
+  for (let d = -.3; d <= .3; d += .075) { let a = P(-1.75 + d, 0, 4.7), b = P(-1.75 + d, 0, 5.3); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); a = P(-2.05, 0, 5.0 + d); b = P(-1.45, 0, 5.0 + d); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+  c.stroke(); c.restore();
+  // manhole cover in the road
+  fillP(c, ring(-1.2, 0, 10.5, .36, 32), slate);
+  strokeP(c, ring(-1.2, 0, 10.5, .27, 32), navy, .9, true);
+  strokeP(c, ring(-1.2, 0, 10.5, .16, 32), navy, .9, true);
+  // fire hydrant at the left kerb
+  drawHydrant(c, -3.95, 8.2);
+  // storm drain at the kerb: grate in the gutter + inlet slot in the kerb face
+  fill3(c, [[1.78, 0, 4.12], [2.28, 0, 4.12], [2.28, 0, 4.82], [1.78, 0, 4.82]], slate);
+  fill3(c, [[1.84, 0, 4.17], [2.22, 0, 4.17], [2.22, 0, 4.77], [1.84, 0, 4.77]], navy);
+  c.strokeStyle = slate; c.lineWidth = 1.1; c.beginPath(); for (let x = 1.9; x < 2.2; x += .065) seg([x, 0, 4.17], [x, 0, 4.77]); c.stroke();
+  fill3(c, [[2.3, .025, 4.2], [2.3, .025, 4.74], [2.3, .105, 4.74], [2.3, .105, 4.2]], navy);
+}
+
+function drawHydrant(c, x, z) {
+  // a teal-painted hydrant: lit on the right (lamp and stall), own colour darkened by hatching on the wall side
+  const b = .15, k = teal;
+  { const p = P(x, b, z); c.fillStyle = navy; c.beginPath(); c.ellipse(p[0] - 3, p[1] + .5, 12, 2.2, 0, 0, TAU); c.fill(); }
+  cyl(c, x, z, .16, b, b + .07, k, k, 24);
+  cyl(c, x, z, .12, b + .07, b + .58, k, null, 24);
+  hatchIn(c, hull(ring(x, b + .07, z, .121, 24).concat(ring(x, b + .58, z, .121, 24))).filter(p => p[0] < P(x - .02, 0, z)[0]), navy, 2.2, -1.1, 1);
+  cyl(c, x, z, .14, b + .56, b + .62, k, k, 24);
+  const dome = []; for (let i = 0; i <= 16; i++) { const a = i / 16 * PI; dome.push(P(x + Math.cos(a) * .12, b + .62 + Math.sin(a) * .1, z)); }
+  fillP(c, dome, k); cyl(c, x, z, .03, b + .7, b + .76, navy, slate, 10);
+  // side nozzles: the left in profile, the front one end-on with a chained cap
+  fill3(c, [[x - .12, b + .4, z], [x - .2, b + .4, z], [x - .2, b + .48, z], [x - .12, b + .48, z]], k);
+  fill3(c, [[x - .2, b + .38, z], [x - .23, b + .38, z], [x - .23, b + .5, z], [x - .2, b + .5, z]], navy);
+  const n = P(x + .05, b + .44, z - .13); c.fillStyle = k; c.beginPath(); c.arc(n[0], n[1], .06 * S(z), 0, TAU); c.fill();
+  c.fillStyle = navy; c.beginPath(); c.arc(n[0], n[1], .035 * S(z), 0, TAU); c.fill();
+  strokeP(c, [[n[0] + 2, n[1] + 3], [n[0] + 4, n[1] + 9], [n[0] + 6, n[1] + 6]], slate, .8);
+  line3(c, [x + .07, b + .1, z - .1], [x + .07, b + .55, z - .1], cream, 1.1);   // wet highlight toward the lamp and the stall
+  strokeP(c, dome.slice(0, 7), cream, .9);
+}
+
+// ---- light falling on the ground: lamp pool, stall pool, lantern pool, shadows ----
+function stallPool() {
+  // rays from the bulb over the counter's front edge reach the ground at zEdge; the lit fan widens toward us
+  const [bx, bh, bz] = ST.bulb, ce = ST.cnt, s = bh / (bh - ce.h), zEdge = bz + (ce.z0 - bz) * s;
+  const xAt = (xe, z) => bx + (xe - bx) * (bz - z) / (bz - ce.z0);
+  return { zEdge, xAt };
+}
+function personShadow(gh) {
+  // silhouette of the customer cast by the bulb onto a ground plane at height gh
+  const [bx, bh, bz] = ST.bulb, pz = 5.02;
+  const sil = [[2.45, .17], [2.8, .17], [2.86, .9], [2.88, 1.4], [2.7, 1.56], [2.55, 1.56], [2.36, 1.4], [2.36, .9]];
+  return sil.map(([x, h]) => { const s = (bh - gh) / Math.max(.02, bh - h); return [bx + (x - bx) * s, gh, bz + (pz - bz) * s]; });
+}
+// a tapered limb on a joint chain: world points with half-widths in metres -> one flat polygon with rounded joints
+function limb(c, pts, ws, ink) {
+  const S2 = pts.map(p => P(p[0], p[1], p[2])), L = [], R = [];
+  for (let i = 0; i < S2.length; i++) {
+    const a = S2[Math.max(0, i - 1)], b = S2[Math.min(S2.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, w = ws[i] * S(pts[i][2]);
+    L.push([S2[i][0] - dy / l * w, S2[i][1] + dx / l * w]); R.push([S2[i][0] + dy / l * w, S2[i][1] - dx / l * w]);
+  }
+  fillP(c, L.concat(R.reverse()), ink);
+  c.fillStyle = ink; for (let i = 1; i < S2.length - 1; i++) { c.beginPath(); c.arc(S2[i][0], S2[i][1], ws[i] * S(pts[i][2]), 0, TAU); c.fill(); }
+  return S2;
+}
+// a mitten hand with a separate thumb (screen px), rotated toward the action
+function hand(c, x, y, r, ang, ink, thumbSide = 1, edge) {
+  c.save(); c.translate(x, y); c.rotate(ang);
+  c.fillStyle = ink; c.beginPath(); c.ellipse(0, 0, r * 1.25, r * .85, 0, 0, TAU); c.fill();
+  c.beginPath(); c.ellipse(-r * .55, thumbSide * r * .75, r * .55, r * .32, thumbSide * .6, 0, TAU); c.fill();
+  if (edge) { c.strokeStyle = edge; c.lineWidth = .8; c.beginPath(); c.moveTo(r * .2, -r * .35); c.lineTo(r * 1.05, -r * .2); c.moveTo(r * .2, 0); c.lineTo(r * 1.15, .05 * r); c.stroke(); }
+  c.restore();
+}
+// a printed starburst: short tapered rays round a light, hard-edged and flat
+function burst(c, x, y, r0, r1, n, ink, w, sy = 1, rot = 0) {
+  c.fillStyle = ink; c.beginPath();
+  for (let i = 0; i < n; i++) { const a = rot + i / n * TAU, L = i % 2 ? r1 * .72 : r1, ca = Math.cos(a), sa = Math.sin(a), px = -sa * w / 2, py = ca * w / 2;
+    c.moveTo(x + ca * r0 + px, y + (sa * r0 + py) * sy); c.lineTo(x + ca * L, y + sa * L * sy); c.lineTo(x + ca * r0 - px, y + (sa * r0 - py) * sy); c.closePath(); }
+  c.fill();
+}
+// hard-edged concentric discs: a printed glow made of flat ink steps
+function rings(c, x, y, list, sx = 1, sy = 1) { for (const [r, ink] of list) { c.fillStyle = ink; c.beginPath(); c.ellipse(x, y, r * sx, r * sy, 0, 0, TAU); c.fill(); } }
+const KERB_SW = [[2.3, .15, 3], [2.3, .15, 6.6], [40, .15, 6.6], [40, .15, 3]];       // the corner sidewalk, right of the kerb
+const KERB_RD = [[-3.5, 0, 3], [2.3, 0, 3], [2.3, 0, 7.2], [-3.5, 0, 7.2]];           // the road, left of it
+function drawPools(c) {
+  // street lamp pool (cool): two flat steps, slate rim, teal core
+  // drawn once on the road (h 0) and once on the raised far sidewalk (h .15), each clipped to its own surface, so the
+  // kerb faces between them stay unlit and the step shows through the light. Solid core, then a stepped dash fringe.
+  const farSW = h => { const o = [[2.3, h, 30]]; for (let i = 0; i <= 8; i++) { const a = PI - i / 8 * PI / 2; o.push([2.9 + .6 * Math.cos(a), h, 14.2 - .6 * Math.sin(a)]); } o.push([40, h, 13.6], [40, h, B2.zf], [B2.X, h, B2.zf], [B2.X, h, 30]); return o; };
+  const lampPool = gh => {
+    fillP(c, ring(LAMP.hx, gh, LAMP.z, 1.55, 40), teal);
+    const r = mul(207 + gh * 1000); c.lineWidth = 1.6;
+    for (let z = LAMP.z - 2.7; z < LAMP.z + 2.7; z += .09) {
+      const y = P(0, gh, z)[1]; c.beginPath();
+      for (let x = LAMP.hx - 2.8; x < LAMP.hx + 2.8; x += .14 + r() * .2) {
+        const d = Math.hypot((x - LAMP.hx) / 2.8, (z - LAMP.z) / 2.7); if (d < .5 || d > 1 || r() < (d - .5) * 1.6) continue;
+        c.strokeStyle = d < .74 ? teal : slate; const A = P(x, gh, z)[0], B = P(x + .1 + r() * .25, gh, z)[0]; c.beginPath(); c.moveTo(A, y); c.lineTo(B, y); c.stroke();
+      }
+    }
+  };
+  c.save(); c.beginPath(); W3([[-3.5, 0, 3], [40, 0, 3], [40, 0, 46], [-3.5, 0, 46]]).forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.closePath();
+  W3(farSW(0)).forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.closePath(); c.clip('evenodd'); lampPool(0); c.restore();
+  c.save(); pth(c, W3(farSW(.15))); c.clip(); lampPool(.15);
+  c.strokeStyle = navy; c.lineWidth = 1.4; c.beginPath(); for (let z = 16; z < 30; z += 1.4) { const a = P(2.3, .15, z), b = P(B2.X, .15, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();   // joints read through
+  c.restore();
+  // stall light: rays from the bulb over the counter edge reach the ground beyond the counter's shadow (zEdge)
+  // and fan out toward us over the sidewalk and across the kerb onto the road
+  const { zEdge, xAt } = stallPool();
+  const xl = z => xAt(ST.cnt.x0 + .05, z), xr = z => xAt(ST.cnt.x1 - .05, z);
+  const zE = gh => ST.bulb[2] + (zEdge - ST.bulb[2]) * (ST.bulb[1] - gh) / ST.bulb[1];     // shadow edge on a plane at gh
+  const core = [], pc = [3.95, 4.36];
+  for (let i = 0; i < 48; i++) { const a = i / 48 * TAU, ca = Math.cos(a), sa = Math.sin(a), e = .28;
+    const rx = 1.4 * Math.sign(ca) * Math.pow(Math.abs(ca), e * 2), rz = .32 * Math.sign(sa) * Math.pow(Math.abs(sa), e * 2), wob = 1 + .05 * Math.sin(a * 7) + .03 * Math.sin(a * 13);
+    core.push([pc[0] + rx * wob, .15, Math.min(zE(.15), pc[1] + rz * wob)]); }
+  for (const [gh, area] of [[.15, KERB_SW], [0, KERB_RD]]) {
+    const ze = zE(gh), fan = [[xl(ze), gh, ze], [xr(ze), gh, ze], [xr(3.0), gh, 3.0], [xl(3.0), gh, 3.0]];
+    c.save();
+    pth(c, W3(fan)); c.clip(); pth(c, W3(area)); c.clip();
+    // the customer's long shadow is cut out of the light
+    c.beginPath(); c.rect(0, 0, W, H); W3(personShadow(gh)).forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.clip('evenodd');
+    if (gh > 0) {
+      fill3(c, core, must);
+      // paving joints read through the light in the darker warm ink
+      c.save(); pth(c, W3(core)); c.clip(); c.strokeStyle = verm; c.lineWidth = 1; c.beginPath();
+      for (let z = 3.3; z < 4.7; z += .9) { const a = P(2.3, .15, z), b = P(30, .15, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+      for (let x = 3.2; x < 6; x += .9) { const a = P(x, .15, 3), b = P(x, .15, 7.2); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+      c.stroke(); c.restore();
+    }
+    // fall-off: a hatched band of wet glints, rows thinning out toward us
+    c.strokeStyle = must; const r = mul(31 + gh * 100);
+    for (let z = ze - .02, k = 0; z > 3.1; k++) {
+      const u = (ze - z) / (ze - 3.1), y = P(0, gh, z)[1];
+      c.lineWidth = Math.max(.8, 2.2 * (1 - u));
+      c.beginPath();
+      for (let x = xl(z) - .2; x < Math.min(xr(z), 7); x += (gh > 0 ? .3 + r() * .5 : .16 + r() * .2)) { const L = (gh > 0 ? .2 + r() * .7 : .3 + r() * .5) * (1 - u * .6); if (r() < u * (gh > 0 ? .55 : .35)) continue; const A = P(x, gh, z)[0], B = P(x + L, gh, z)[0]; c.moveTo(A, y); c.lineTo(B, y); }
+      c.stroke();
+      z -= .035 + u * u * .16;
+    }
+    c.restore();
+  }
+  // dark ground under the cart itself
+  fill3(c, [[2.75, .15, 5.42], [5.3, .15, 5.42], [5.3, .15, 6.5], [2.75, .15, 6.5]], navy);
+  // lantern pool: vermilion hatched ellipse, with the menu board and the crates casting shadows away from the lantern
+  const lc = [LANT.px, .15, LANT.z], Lh = 1.87;
+  const sh = (x, h, z) => { const k = (Lh - .15) / (Lh - h); return [lc[0] + (x - lc[0]) * k, .15, lc[2] + (z - lc[2]) * k]; };
+  const bsh = [[5.68, .15, 4.98], [6.18, .15, 4.98], sh(6.18, 1.08, 5.24), sh(5.68, 1.08, 5.24)];
+  const csh = hull(W3([[5.48, .15, 5.62], [5.96, .15, 5.62], [5.96, .15, 6.05], [5.48, .15, 6.05], sh(5.48, .74, 5.62), sh(5.96, .74, 5.62), sh(5.96, .74, 6.05), sh(5.48, .74, 6.05)]));
+  c.save(); c.beginPath(); c.rect(0, 0, W, H); W3(bsh).forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.closePath();
+  csh.forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.closePath(); c.clip('evenodd');
+  c.strokeStyle = verm; c.lineWidth = 1.2; c.beginPath();
+  for (let dz = -.85; dz <= .85; dz += .085) { const half = 1.05 * Math.sqrt(Math.max(0, 1 - Math.pow(dz / .85, 2))); if (half < .05) continue; const u = Math.abs(dz) / .85;
+    for (let x = -half; x < half; x += .22) { if (hash(dz * 31 + x * 7) < u * .6) continue; const a = P(lc[0] + x, .15, lc[2] + dz), b = P(lc[0] + Math.min(half, x + .16), .15, lc[2] + dz); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } }
+  c.stroke(); c.restore();
+}
+
+function drawPuddle(c) {
+  // a real mirror: redraw the world reflected in the ground plane, clipped to the puddle
+  const pts = W3(PUD.map(([x, z]) => [x, 0, z]));
+  c.save(); pth(c, pts); c.clip();
+  c.save(); c.translate(0, 2 * HZ); c.scale(1, -1); drawSky(c); drawTowers(c); c.restore();
+  MIR = true; drawFarBlocks(c); drawBlock2(c); drawLeftBuilding(c); drawLampPost(c, 0, true); MIR = false;
+  // mirror is a touch darker than the world: navy ripple lines across it
+  c.restore();
+  // rim: wet edge catches light on the far side, dark lip on the near side
+  strokeP(c, pts, slate, 1.2, true);                          // the wet edge all round
+  strokeP(c, pts.slice(36).concat([pts[0]]), navy, 1.6);     // near lip
+  strokeP(c, pts.slice(5, 16), cream, 1.0); strokeP(c, pts.slice(21, 31), cream, 1.0);   // far wet edge catching light, broken
+}
+
+function drawStatic(c) {
+  c.save(); pth(c, [[IMG.x0, IMG.y0], [IMG.x1, IMG.y0], [IMG.x1, IMG.y1], [IMG.x0, IMG.y1]]); c.clip();
+  drawSky(c); drawTowers(c); drawFarBlocks(c); drawGroundBase(c);
+  drawBlock2(c); drawLeftBuilding(c);
+  drawGround(c); drawPools(c); drawPuddle(c);
+  c.restore();
+}
+
+// ======================================================================================
+// DYNAMIC LAYERS
+// ======================================================================================
+// ---- vertical reflection bands on the wet street (rippling) ----
+const STREAKS = [];
+function buildStreaks() {
+  STREAKS.length = 0;
+  const add = (x, w, y0, y1, ink, seed, kind) => STREAKS.push({ x, w, y0, y1: Math.min(y1, IMG.y1), ink, seed, kind });
+  // lamp head
+  { const g = P(LAMP.hx, 0, LAMP.z); add(g[0], 9, g[1] + 2, P(LAMP.hx, -LAMP.hh, LAMP.z)[1], cream, 1); }
+  // hotel sign
+  { const g = P((SIGN.x0 + SIGN.x1) / 2, 0, SIGN.z), m = P(0, -(SIGN.h0 + SIGN.h1) / 2, SIGN.z); add(g[0], 20, g[1] + 3, m[1] + 30, verm, 2, 'sign'); }
+  // hotel door
+  { const g = P(LB.X + .3, 0, 21.8); add(g[0], 6, g[1] + 2, P(0, -1.4, 21.8)[1] + 10, cream, 3); }
+  // far shopfronts and low windows
+  FAR.blocks.forEach(([x0, x1], bi) => { for (let x = x0 + .4; x < x1 - 2.5; x += 3.4) { const v = hash(x * 3.1 + bi * 7); if (v > .55) { const g = P(x + 1.3, 0, FAR.z); add(g[0], 9, g[1] + 1, P(0, -2.6, FAR.z)[1] + 14, v > .8 ? must : cream, x * 10); } } });
+  // lit windows of the left building (lowest floor) & block 2 side
+  let s = 0;
+  for (let a = 9.2; a < 30.8; a += 2.5) { s++; const v = hash(s * 2.17 + 4); if (v >= .42 && s % 2) { const g = P(LB.X + .4, 0, a + .65); add(g[0], 6, g[1] + 2, P(0, -5.2, a + .65)[1], v < .72 ? teal : v < .9 ? cream : must, s + 40); } }
+  s = 50;
+  for (let a = 16.4; a < 29; a += 2.6) { s++; const v = hash(s * 1.91); if (v >= .45) { const g = P(B2.X - .3, 0, a + .7); add(g[0], 6, g[1] + 2, P(0, -5.2, a + .7)[1], v < .8 ? teal : cream, s + 60); } }
+  // block 2 front: windows right of the stall reflect on the lane
+  s = 90;
+  for (let a = 7.3; a < 21.5; a += 2.4) { s++; const v = hash(s * 1.53 + 2); if (v >= .4) { const g = P(a + .67, 0, B2.zf); add(g[0], 8, g[1] + 2, P(0, -5.2, B2.zf)[1], v < .66 ? teal : v < .86 ? cream : must, s + 80); } }
+  // hydrant
+  { const g = P(-3.95, 0, 8.2); add(g[0], 10, g[1] + 3, P(0, -.7, 8.2)[1] + 6, teal, 13); }
+  // the stall: interior glow, warm bands
+  { const zE = stallPool().zEdge; for (const [x, w] of [[3.35, 26], [3.95, 34], [4.6, 30]]) { const g = P(x, 0, zE); add(g[0], w, g[1] + 1, IMG.y1, must, x * 7, 'stall'); } }
+  // lantern (sways: x updated per frame)
+  { const g = P(LANT.px, 0, LANT.z); add(g[0], 16, g[1] + 2, IMG.y1, verm, 9, 'lantern'); }
+  // the wet corner pavement also mirrors the solid things standing on it (mirror plane at the sidewalk top, h .15):
+  // a band for each, from its foot down to the mirror image of its top; dark ones last so they cut the warm ones
+  const SW = .15, mb = (x0, x1, z, h0, h1, ink, n, seed, w = .7) => { for (let i = 0; i < n; i++) { const x = lerp(x0, x1, (i + .5) / n), g = P(x, 2 * SW - h0, z), m = P(x, 2 * SW - h1, z); add(g[0], (x1 - x0) / n * S(z) * w, g[1] + 1, m[1], ink, seed + i * 3.7, 'sw'); } };
+  mb(2.8, 5.2, 5.5, .28, .92, verm, 7, 31, .42);             // lacquered cart front
+  mb(3.64, 3.96, 5.12, .6, .66, must, 1, 41); mb(4.46, 4.78, 5.12, .6, .66, must, 1, 43);   // stool seats
+  mb(5.48, 5.96, 5.62, .15, .74, must, 2, 47);               // bottle crates
+  mb(5.68, 6.18, 4.98, .15, 1.08, must, 2, 53, .45);         // menu board frame
+  mb(2.45, 2.85, 5.02, .15, 1.5, navy, 1, 61, .6);           // the customer: a dark gap through the warm bands
+}
+function drawStreaks(c, t, lant) {
+  c.save();
+  // ground only, never inside the puddle (it has its own mirror)
+  c.beginPath(); c.rect(0, HZ, W, H); W3(PUD.map(([x, z]) => [x, 0, z])).forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.clip('evenodd');
+  // the stall and its customer stand between the street and everything behind them: in the wet ground in front
+  // of them their own reflection replaces the reflections of what lies beyond
+  const occ = [P(2.42, 0, 4.9)[0], P(ST.roof.x1, 0, ST.roof.zf)[0], 560];
+  for (const s of STREAKS) {
+    let x = s.x; if (s.kind === 'lantern') x += lant.dx;
+    const own = s.kind === 'stall' || s.kind === 'lantern' || s.kind === 'sw';
+    if (s.kind === 'sw') { c.save(); pth(c, W3(KERB_SW)); c.clip(); }
+    const len = s.y1 - s.y0; if (len <= 3) continue;
+    if (!own && x > occ[0] - s.w && x < occ[1] + s.w && s.y1 > occ[2]) { c.save(); c.beginPath(); c.rect(0, 0, W, occ[2]); c.rect(0, 0, occ[0], H); c.rect(occ[1], 0, W, H); c.clip(); }
+    c.fillStyle = s.ink;
+    // the band breaks into bars that shorten and spread apart toward the viewer; the bars drift with the ripple
+    const drift = (t * 7 + s.seed * 13) % 1000;
+    let y = s.y0, k = 0;
+    while (y < s.y1) {
+      const u = (y - s.y0) / len, segL = lerp(Math.min(22, 6 + len * .08), 3, Math.pow(u, .7)) * (.6 + .8 * hash(k * 7.3 + s.seed)), gap = lerp(1.2, 5, u) * (.6 + .8 * hash(k * 3.1 + s.seed * 2));
+      const ya = y, yb = Math.min(s.y1, y + segL);
+      const wf = yy => { const v = (yy - s.y0) / len; return Math.max(2, s.w * (.75 + .25 * Math.sin(yy * .11 + s.seed)) * (1 + v * .6) * (1 - Math.pow(v, 2.5) * .7) * (k % 3 === 2 ? .7 : 1)); };
+      const dx = yy => Math.sin(yy * .19 - t * 1.9 + s.seed) * (.4 + ((yy - s.y0) / len) * 2.2) + Math.sin(drift * .02 + k) * .6;
+      if (yb - ya >= 1) {
+        c.beginPath();
+        for (let yy = ya; yy <= yb + .01; yy += Math.max(1, (yb - ya) / 6)) { const X = x - wf(yy) / 2 + dx(yy); yy === ya ? c.moveTo(X, yy) : c.lineTo(X, yy); }
+        for (let yy = yb; yy >= ya - .01; yy -= Math.max(1, (yb - ya) / 6)) c.lineTo(x + wf(yy) / 2 + dx(yy), yy);
+        c.closePath(); c.fill();
+      }
+      y = yb + gap; k++;
+    }
+    if (!own && x > occ[0] - s.w && x < occ[1] + s.w && s.y1 > occ[2]) c.restore();
+    if (s.kind === 'sw') c.restore();
+  }
+  c.restore();
+}
+
+// ---- hotel blade sign, with one tube that flickers ----
+let SIGNLIT = 1;
+function signLevel(t) {
+  // electric hum with rare short dropouts (deterministic per time slot)
+  const period = 4.3, n = Math.floor(t / period), u = t - n * period;
+  if (hash(n * 3.7 + 1) > .87 && u < .7) { const k = Math.floor(u * 14); return hash(n * 13 + k) > .45 ? 1 : 0; }
+  return 1;
+}
+function drawSign(c, t) {
+  const { z, x0, x1, h0, h1, th } = SIGN;
+  const lv = signLevel(t); SIGNLIT = lv;
+  // red light spilling onto the brick round the sign: stepped dashes along the wall courses, thinner when a tube drops
+  { const zc = (SIGN.z + SIGN.z + SIGN.th) / 2, hc = (h0 + h1) / 2, r = mul(404); c.lineWidth = 1.6; c.strokeStyle = verm; c.beginPath();
+    for (let h = h0 - 1.0; h < h1 + 1.0; h += .2) for (let zz = zc - 1.9; zz < zc + 1.9; zz += .3 + r() * .3) {
+      const d = Math.hypot((zz - zc) / 1.9, (h - hc) / ((h1 - h0) / 2 + 1)); const keep = d < .62 ? .85 : d < 1 ? .4 : 0; if (r() > keep * (lv > .5 ? 1 : .55)) continue;
+      const a = P(LB.X, h, zz), b = P(LB.X, h, zz + .16 + r() * .15); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+    c.stroke(); }
+  // brackets to the wall
+  for (const h of [h1 - .35, h0 + .35]) poly3(c, [[LB.X, h, z + .1], [x0, h, z + .1]], navy, 1.6);
+  fill3(c, [[x1, h0, z], [x1, h0, z + th], [x1, h1, z + th], [x1, h1, z]], slate);   // visible right edge
+  fill3(c, [[x0, h0, z], [x1, h0, z], [x1, h1, z], [x0, h1, z]], navy);
+  poly3(c, [[x0 + .06, h0 + .06, z], [x1 - .06, h0 + .06, z], [x1 - .06, h1 - .06, z], [x0 + .06, h1 - .06, z], [x0 + .06, h0 + .06, z]], cream, 1);
+  const word = 'HOTEL', cap = .62, step = .93, w = x1 - x0;
+  for (let i = 0; i < word.length; i++) {
+    const ch = word[i], gw = gW(ch, .16) * cap, top = h1 - .32 - i * step;
+    const map = (u, v) => P(x0 + u, top - v, z);
+    const lit = i !== SIGN.flick || lv > .5, s = S(z);
+    drawText(c, ch, (w - gw) / 2, 0, cap, { wt: .16, track: 0, ink: lit ? verm : slate, map, lw: .16 * cap * s });
+    if (lit) drawText(c, ch, (w - gw) / 2, 0, cap, { wt: .16, track: 0, ink: cream, map, lw: .9 });
+  }
+}
+
+// ---- rain ----
+const RAIN = { far: [], near: [] };
+function buildRain() {
+  const r = mul(2024);
+  for (let i = 0; i < 300; i++) RAIN.far.push({ x: r() * 1800 - 200, y: r() * 900, l: 9 + r() * 12, v: 520 + r() * 220, w: .9 });
+  for (let i = 0; i < 70; i++) RAIN.near.push({ x: r() * 1900 - 300, y: r() * 900, l: 34 + r() * 40, v: 1100 + r() * 400, w: 1.3 + r() * .6 });
+}
+const RAIN_DX = .24;
+let ZONES = null;
+function buildZones() {
+  // where rain is lit: the lamp's cone, the stall's light in front of the counter
+  const lh = P(LAMP.hx, LAMP.hh, LAMP.z), l0 = P(LAMP.hx - 2.1, 0, LAMP.z - .5), l1 = P(LAMP.hx + 2.1, 0, LAMP.z - .5);
+  const cone = new Path2D(); cone.moveTo(lh[0] - 4, lh[1]); cone.lineTo(lh[0] + 4, lh[1]); cone.lineTo(l1[0] + 10, l1[1]); cone.lineTo(l0[0] - 10, l0[1]); cone.closePath();
+  const a = P(2.5, 2.0, 4.6), b = P(5.6, 2.0, 4.6), d0 = P(1.0, 0, 3.6), d1 = P(7.2, 0, 3.6);
+  const stall = new Path2D(); stall.moveTo(a[0], a[1]); stall.lineTo(b[0], b[1]); stall.lineTo(d1[0], d1[1]); stall.lineTo(d0[0], d0[1]); stall.closePath();
+  const lc = P(LANT.px, 1.85, LANT.z);
+  const lant = new Path2D(); lant.arc(lc[0], lc[1], 70, 0, TAU);
+  const f0 = P(1.45, 2.45, 5.0), f1 = P(2.95, .1, 5.0), fig = new Path2D(); fig.rect(f0[0], f0[1], f1[0] - f0[0], f1[1] - f0[1]);
+  ZONES = { cone, stall, lant, lh, fig };
+}
+function rainInk(c, x, y, near) {
+  if (c.isPointInPath(ZONES.lant, x, y)) return near ? must : verm;
+  if (c.isPointInPath(ZONES.fig, x, y)) return slate;            // drops in front of the customer are not in the stall's light
+  if (c.isPointInPath(ZONES.stall, x, y)) return must;
+  if (c.isPointInPath(ZONES.cone, x, y)) return cream;
+  return slate;
+}
+function drawRain(c, t, list, near) {
+  const groups = new Map();
+  for (const d of list) {
+    const y = ((d.y + d.v * t) % 960 + 960) % 960 - 40, x = ((d.x + d.v * t * RAIN_DX) % 1900 + 1900) % 1900 - 200;
+    if (x < IMG.x0 - 20 || x > IMG.x1 + 20 || y > IMG.y1 + 10) continue;
+    if (!near && y > 600) continue;
+    // test the lit zones in logical units (isPointInPath uses the current transform)
+    const ink = rainInkLogical(x, y + d.l / 2, near);
+    if (!groups.has(ink)) groups.set(ink, []);
+    groups.get(ink).push([x, y, d.l, d.w]);
+  }
+  for (const [ink, arr] of groups) { c.strokeStyle = ink; c.beginPath(); c.lineWidth = near ? 1.9 : 1.4; for (const [x, y, l] of arr) { c.moveTo(x, y); c.lineTo(x + l * RAIN_DX, y + l); } c.stroke(); }
+}
+let ZCTX = null;
+function rainInkLogical(x, y, near) {
+  if (!ZCTX) ZCTX = document.createElement('canvas').getContext('2d');
+  return rainInk(ZCTX, x, y, near);
+}
+
+// ---- lamp post (static geometry, drawn mid-scene; also mirrored in the puddle) ----
+function drawLampPost(c, t, mirrored) {
+  const { x, z, hx, hh } = LAMP, s = S(z);
+  // base: stepped cast-iron plinth
+  cyl(c, x, z, .2, .15, .32, navy, slate);
+  cyl(c, x, z, .15, .32, .95, navy, null);
+  cyl(c, x, z, .19, .95, 1.05, navy, null);
+  // shaft with a lit edge
+  const a0 = P(x - .065, 1.05, z), a1 = P(x + .065, 1.05, z), b0 = P(x - .045, 4.1, z), b1 = P(x + .045, 4.1, z);
+  fillP(c, [a0, a1, b1, b0], navy);
+  strokeP(c, [[a0[0] + .8, a0[1]], [b0[0] + .6, b0[1]]], slate, 1);
+  for (const h of [1.9, 3.2]) cyl(c, x, z, .075, h, h + .08, navy, null);
+  // the glow of the lamp: hard flat steps behind the head (no blur, no dots)
+  { const g = P(hx, hh + .05, z); if (!mirrored) { burst(c, g[0], g[1] + 3, 15, 30, 16, cream, 2.6, .9, .1); rings(c, g[0], g[1] + 2, [[12, teal], [9, cream]], 1, .9); } else rings(c, g[0], g[1], [[11, slate], [7, cream]], 1, .92); }
+  // swan-neck arm reaching over the road
+  const arm = []; for (let i = 0; i <= 16; i++) { const u = i / 16; arm.push(P(lerp(x, hx, u), 4.1 + Math.sin(u * PI) * .55 + u * .1, z)); }
+  strokeP(c, arm, navy, Math.max(1.8, .065 * s));
+  strokeP(c, arm.map(p => [p[0], p[1] - 1.3]), slate, 1);          // lit top edge so the arm reads against the dark block
+  const curl = []; for (let i = 0; i <= 12; i++) { const a = i / 12 * TAU * .8; curl.push(P(x - .16 + Math.cos(a) * .12, 4.1 + .14 + Math.sin(a) * .12, z)); } strokeP(c, curl, navy, 1.2);
+  // lamp head: bell shade, glass bowl below (seen from beneath: the lit lens shows)
+  line3(c, [hx, 4.75, z], [hx, hh + .28, z], navy, 1.4);
+  const shade = [P(hx - .05, hh + .32, z), P(hx + .05, hh + .32, z), P(hx + .26, hh + .06, z), P(hx - .26, hh + .06, z)];
+  fillP(c, shade, navy);
+  fillP(c, ring(hx, hh + .06, z, .26, 24), navy);
+  strokeP(c, [shade[0], shade[3]], slate, 1); strokeP(c, ring(hx, hh + .06, z, .26, 24, PI, TAU), slate, 1);   // rim of the shade catching the sky
+  { const k0 = P(hx, 4.75, z); c.fillStyle = navy; c.beginPath(); c.arc(k0[0], k0[1], 2, 0, TAU); c.fill(); }      // the hanger knuckle under the arm
+  const lens = ring(hx, hh + .04, z, .17, 24); fillP(c, lens, cream);
+  const g = P(hx, hh, z);
+  fillP(c, [[g[0] - 5, g[1] - 1], [g[0] + 5, g[1] - 1], [g[0] + 3, g[1] + 4], [g[0] - 3, g[1] + 4]], cream);
+  
+}
+function drawLampCone(c) {
+  // a beam of light in the rain, printed as stipple mist inside the cone
+  c.save(); c.clip(ZONES.cone);
+  const lh = ZONES.lh;
+  // a fan of hairline rays: a hatched band, densest at the lamp
+  c.strokeStyle = cream; const r = mul(101);
+  for (let i = 0; i < 9; i++) { const u = (i + .5) / 9, ang = lerp(-.36, .36, u) + (r() - .5) * .02, L = (90 + r() * 110) * (1 - Math.abs(u - .5) * .8);
+    c.lineWidth = 1.6; c.beginPath(); c.moveTo(lh[0] + Math.sin(ang) * 12, lh[1] + 8); c.lineTo(lh[0] + Math.sin(ang) * L, lh[1] + 8 + Math.cos(ang) * L); c.stroke(); }
+  c.restore();
+}
+
+// ---- the stall ----
+function drawStallBack(c, t) {
+  const R = ST.roof, ce = ST.cnt;
+  // back tarp, lit from the bulb; edges darken in hatched steps
+  const back = [[R.x0 + .05, .86, 7.0], [5.34, .86, 7.0], [5.34, 2.85, 7.0], [R.x0 + .05, 2.85, 7.0]];
+  fill3(c, back, must);
+  const bp = W3(back);
+  c.save(); pth(c, bp); c.clip();
+  const bc = P(ST.bulb[0], ST.bulb[1], 7.0);
+  c.strokeStyle = verm; c.lineWidth = 1.1; c.beginPath();
+  for (let x = bp[0][0]; x < bp[1][0]; x += 3.2) { const d = Math.abs(x - bc[0]); if (d < 70) continue; c.moveTo(x, bp[2][1]); c.lineTo(x - 30, bp[0][1]); }
+  c.stroke(); c.restore();
+  // right side wall, inner face lit, darkening toward the open front
+  const rw = [[5.34, .86, 5.3], [5.34, .86, 7.0], [5.34, roofH(7.0) - .05, 7.0], [5.34, roofH(5.3) - .05, 5.3]];
+  fill3(c, rw, must);
+  hatchIn(c, W3([[5.34, .86, 5.3], [5.34, .86, 5.95], [5.34, roofH(5.95) - .05, 5.95], [5.34, roofH(5.3) - .05, 5.3]]), verm, 2.6, 1.1, 1.1);
+  poly3(c, [[5.33, .86, 6.99], [5.33, 2.8, 6.99]], verm, 2);   // corner post where the back and side canvas meet
+  // utensil rail with ladles, a strainer and a towel
+  poly3(c, [[3.0, 1.75, 6.97], [5.1, 1.75, 6.97]], navy, 1.4);
+  for (const [x, kind] of [[3.25, 0], [3.5, 1], [3.72, 0], [4.86, 2], [5.02, 0]]) {
+    if (kind === 0) { line3(c, [x, 1.75, 6.96], [x, 1.42, 6.96], navy, 1.2); const p = P(x, 1.38, 6.96); c.fillStyle = navy; c.beginPath(); c.ellipse(p[0], p[1], 4, 3.2, 0, 0, TAU); c.fill(); }
+    if (kind === 1) { line3(c, [x, 1.75, 6.96], [x, 1.5, 6.96], navy, 1.2); const p = P(x, 1.42, 6.96); c.fillStyle = navy; c.beginPath(); c.arc(p[0], p[1], 6, 0, TAU); c.fill(); c.fillStyle = slate; c.beginPath(); c.arc(p[0], p[1], 4.2, 0, TAU); c.fill(); hatchIn(c, [[p[0] - 4, p[1] - 4], [p[0] + 4, p[1] - 4], [p[0] + 4, p[1] + 4], [p[0] - 4, p[1] + 4]], navy, 2, .8, .6); }
+    if (kind === 2) { fill3(c, [[x - .07, 1.74, 6.96], [x + .07, 1.74, 6.96], [x + .08, 1.4, 6.96], [x - .06, 1.38, 6.96]], cream); line3(c, [x - .02, 1.7, 6.95], [x - .01, 1.42, 6.95], must, 1); }
+  }
+  // shelf with spare bowls behind the cook, right side
+  fill3(c, [[4.75, 1.22, 6.98], [5.3, 1.22, 6.98], [5.3, 1.25, 6.85], [4.75, 1.25, 6.85]], verm);
+  for (const x of [4.82, 5.24]) poly3(c, [[x, 1.22, 6.97], [x, 1.1, 6.97], [x, 1.22, 6.88]], navy, 1);
+  for (let i = 0; i < 3; i++) { const x = 4.86 + i * .17; fillP(c, hull(ring(x, 1.25, 6.92, .065, 16).concat(ring(x, 1.31, 6.92, .075, 16))), cream); strokeP(c, ring(x, 1.29, 6.92, .072, 16, PI, TAU), verm, 1); }
+}
+
+function drawCook(c, t) {
+  const z = 6.7, s = S(z);
+  // shake the noodle basket in bursts
+  const ph = t % 6.5, burst = ph < 1.8 ? Math.sin(ph / 1.8 * PI) : 0, shake = .022 * burst * Math.sin(t * 18);
+  const Pz = (x, h, zz = z) => P(x, h, zz);
+  // torso on the skeleton: shoulders wider than the waist, cream jacket lit from the bulb in front
+  const torso = [[4.31, 1.41], [4.2, 1.375], [4.12, 1.32], [4.13, 1.2], [4.19, 1.04], [4.22, .82], [4.58, .82], [4.6, 1.04], [4.65, 1.2], [4.66, 1.32], [4.58, 1.375], [4.47, 1.41]];
+  fillP(c, torso.map(([x, h]) => Pz(x, h)), cream);
+  fill3(c, [[4.58, 1.375, z], [4.66, 1.32, z], [4.65, 1.2, z], [4.6, 1.04, z], [4.58, .82, z], [4.52, .82, z], [4.55, 1.05, z], [4.57, 1.3, z]], must);   // shadow side, own colour darkened
+  poly3(c, [[4.27, 1.4, z], [4.43, 1.1, z], [4.6, 1.36, z]], navy, 1.6);                          // crossover collar
+  poly3(c, [[4.43, 1.1, z], [4.45, .84, z]], must, 1);                                            // front fold
+  fill3(c, [[4.33, 1.36, z], [4.45, 1.36, z], [4.45, 1.43, z], [4.34, 1.43, z]], verm);          // neck
+  // head: three-quarter turn to our left, looking down into the pot
+  const hc = Pz(4.38, 1.515), hw = .088 * s, hh = .112 * s;
+  c.fillStyle = must; c.beginPath(); c.ellipse(hc[0], hc[1], hw, hh, -.12, 0, TAU); c.fill();
+  c.save(); c.beginPath(); c.ellipse(hc[0], hc[1], hw, hh, -.12, 0, TAU); c.clip();
+  c.fillStyle = verm; c.beginPath(); c.ellipse(hc[0] + hw * .95, hc[1] + 1, hw * .55, hh * 1.1, -.1, 0, TAU); c.fill();
+  c.fillStyle = navy; c.beginPath(); c.ellipse(hc[0] + hw * .3, hc[1] - hh * .85, hw * 1.1, hh * .5, -.2, 0, TAU); c.fill();
+  c.restore();
+  c.fillStyle = verm; c.beginPath(); c.ellipse(hc[0] + hw * .62, hc[1] + 1, 1.7, 2.6, 0, 0, TAU); c.fill();
+  c.strokeStyle = cream; c.lineWidth = 2.6; c.beginPath(); c.ellipse(hc[0], hc[1] - hh * .42, hw * 1.02, hh * .22, -.12, PI * .05, PI * .98); c.stroke();
+  c.strokeStyle = verm; c.lineWidth = 1; c.setLineDash([1.6, 1.4]); c.beginPath(); c.ellipse(hc[0], hc[1] - hh * .42, hw * 1.02, hh * .22, -.12, PI * .05, PI * .98); c.stroke(); c.setLineDash([]);
+  c.fillStyle = cream; c.beginPath(); c.ellipse(hc[0] + hw * .95, hc[1] - hh * .5, 2.4, 1.8, .4, 0, TAU); c.fill();
+  c.strokeStyle = navy; c.lineWidth = 1.1; c.beginPath();
+  c.moveTo(hc[0] - hw * .62, hc[1] - hh * .12); c.lineTo(hc[0] - hw * .12, hc[1] - hh * .16);
+  c.moveTo(hc[0] - hw * .55, hc[1] + hh * .07); c.quadraticCurveTo(hc[0] - hw * .35, hc[1] + hh * .14, hc[0] - hw * .15, hc[1] + hh * .05);
+  c.stroke();
+  c.fillStyle = must; c.beginPath(); c.moveTo(hc[0] - hw * .9, hc[1] - hh * .05); c.lineTo(hc[0] - hw * 1.18, hc[1] + hh * .34); c.lineTo(hc[0] - hw * .86, hc[1] + hh * .4); c.fill();
+  c.strokeStyle = verm; c.lineWidth = 1; c.beginPath(); c.moveTo(hc[0] - hw * .74, hc[1] + hh * .62); c.quadraticCurveTo(hc[0] - hw * .5, hc[1] + hh * .72, hc[0] - hw * .3, hc[1] + hh * .6); c.stroke();
+  // left arm (our right): sleeve rolled to the elbow, forearm in, hand under the bowl ready for the noodles
+  limb(c, [[4.63, 1.31, z], [4.74, 1.08, 6.62]], [.055, .045], cream);
+  limb(c, [[4.74, 1.08, 6.62], [4.62, 1.11, 6.44]], [.034, .027], verm);
+  { const cf = Pz(4.74, 1.1, 6.62); c.fillStyle = cream; c.beginPath(); c.ellipse(cf[0], cf[1], 4, 2.6, -.4, 0, TAU); c.fill(); }   // rolled cuff
+  cyl(c, 4.55, 6.36, .08, 1.12, 1.19, cream, must); strokeP(c, ring(4.55, 1.16, 6.36, .079, 16, PI, TAU), verm, 1.1);
+  { const hp = P(4.6, 1.115, 6.39); hand(c, hp[0], hp[1] + 1, 3, .2, verm, 1); }
+  // right arm (our left): shoulder lifted, elbow out above the pot rim, fist closed round the basket's handle,
+  // held to the left of the rising steam. The sleeve's underside is in shadow so it separates from the jacket.
+  const hand1 = [3.68, 1.38 + shake, 6.3];
+  const up = limb(c, [[4.18, 1.34, z], [3.92, 1.23, 6.52]], [.056, .046], cream);
+  { const a2 = up[0], b2 = up[1]; strokeP(c, [[a2[0], a2[1] + .045 * s], [b2[0] + 2, b2[1] + .04 * s]], must, 2.2); }   // shadowed underside
+  strokeP(c, [Pz(4.17, 1.29), Pz(4.13, 1.12)], must, 1.2);                                                          // armpit fold against the torso
+  limb(c, [[3.92, 1.23, 6.52], [3.71, 1.35 + shake, 6.32]], [.034, .027], verm);
+  { const cf = P(3.92, 1.24, 6.52); c.fillStyle = cream; c.beginPath(); c.ellipse(cf[0], cf[1], 4, 2.8, .3, 0, TAU); c.fill(); strokeP(c, [[cf[0] - 3, cf[1] + 2], [cf[0] + 3, cf[1] + 2.5]], must, 1); }
+  return { hand: hand1, shake };
+}
+
+function drawPots(c, t, cook) {
+  // big stockpot: wall, rim, broth clipped inside the rim (contents behind the near rim)
+  cyl(c, 3.75, 6.05, .17, .86, 1.18, slate, null, 32);
+  strokeP(c, [P(3.75 - .12, .9, 6.05), P(3.75 - .12, 1.16, 6.05)], cream, 1);     // brushed-metal highlight
+  const rim = ring(3.75, 1.18, 6.05, .17, 32), inner = ring(3.75, 1.18, 6.05, .155, 32);
+  fillP(c, rim, navy);
+  c.save(); pth(c, inner); c.clip(); fillP(c, ring(3.75, 1.15, 6.05, .155, 32), cream); c.restore();
+  // the noodle basket (tebo), lifted to drain: visible above the broth and behind the near rim
+  const sh = cook.shake, bh = 1.15 + sh * .6;
+  c.save(); const rc = P(3.75, 1.18, 6.05); c.beginPath(); c.rect(0, 0, W, rc[1]); pth(c, inner); c.clip();
+  const bk = cyl(c, 3.73, 6.03, .068, bh, bh + .11, slate, null, 18);
+  hatchIn(c, hull(bk.A.concat(bk.B)), navy, 2, .8, .7);
+  strokeP(c, bk.B, cream, 1, true);
+  // drips falling back off the basket into the pot, inside the rim
+  for (let i = 0; i < 3; i++) { const u = ((t * 1.7 + i / 3) % 1), p = P(3.7 + i * .025, bh - .005 - u * .03, 6.07); c.fillStyle = cream; c.fillRect(p[0], p[1], 1.2, 1.8); }
+  c.restore();
+  // its long bamboo handle runs up past the fist (the fist closes round it)
+  const hd = cook.hand, hEnd = [hd[0] - .025, hd[1] + .02, hd[2] - .01];
+  poly3(c, [[3.72, bh + .1, 6.03], hEnd], must, 2.4); poly3(c, [[3.72, bh + .1, 6.03], hEnd], verm, .7);
+  { const hp = P(...hd); c.fillStyle = verm; c.beginPath(); c.ellipse(hp[0], hp[1], 4.2, 3.4, -.5, 0, TAU); c.fill();
+    strokeP(c, [[hp[0] - 2.5, hp[1] - 1.5], [hp[0] + 2, hp[1] - 2.6]], must, 1); strokeP(c, [[hp[0] - 1.5, hp[1] + .5], [hp[0] + 2.8, hp[1] - .6]], navy, .8); }
+  // small soup pot with ladle
+  cyl(c, 3.28, 6.05, .12, .86, 1.07, slate, null, 28);
+  const rim2 = ring(3.28, 1.07, 6.05, .12, 28), in2 = ring(3.28, 1.07, 6.05, .105, 28);
+  fillP(c, rim2, navy);
+  c.save(); pth(c, in2); c.clip(); fillP(c, ring(3.28, 1.05, 6.05, .105, 28), must); c.restore();
+  poly3(c, [[3.3, 1.06, 6.07], [3.18, 1.42, 6.0]], navy, 1.6);
+}
+
+// steam: flat cream wisps — a thin curling stem off the surface that swells, then breaks into round puffs drifting downwind
+function steam(c, t, x, h, z, n, seed, rise, wmax, clipTop) {
+  const sc = S(z); c.fillStyle = cream;
+  for (let i = 0; i < n; i++) {
+    const sp = .5 + hash(seed + i * 3) * .3, ph = hash(seed + i * 7) * TAU, off = (hash(seed + i) - .5) * .1;
+    const cx = u => x + off + Math.sin(u * 4.2 - t * 1.3 * sp + ph) * .035 * (.2 + u) + u * u * .12;   // curl + drift right
+    const stemTop = .2 + .05 * Math.sin(t * .7 + ph);
+    // the stem: a tapered strip with round ends, thin at the base
+    const Lp = [], Rp = [];
+    for (let k = 0; k <= 14; k++) { const u = k / 14 * stemTop, p = P(cx(u), h + u * rise, z), q = P(cx(u + .01), h + (u + .01) * rise, z), dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1, w = (.003 + wmax * .4 * u / stemTop) * sc;
+      if (clipTop !== undefined && p[1] < clipTop) break; Lp.push([p[0] - dy / l * w, p[1] + dx / l * w]); Rp.push([p[0] + dy / l * w, p[1] - dx / l * w]); }
+    if (Lp.length > 2) { fillP(c, Lp.concat(Rp.reverse()), cream); const e = Lp[Lp.length - 1], f = Rp[0]; c.beginPath(); c.arc((e[0] + f[0]) / 2, (e[1] + f[1]) / 2, Math.hypot(e[0] - f[0], e[1] - f[1]) / 2, 0, TAU); c.fill(); }
+    // puffs: break away from the stem, rise, swell and shrink away
+    for (let k = 0; k < 4; k++) {
+      const u = stemTop + .06 + (((t * .22 * sp + k / 4 + hash(seed + i * 11)) % 1)) * (1 - stemTop), v = (u - stemTop) / (1 - stemTop);
+      const p = P(cx(u), h + u * rise, z), r = wmax * sc * (.7 + v * 1.1) * Math.sin(Math.min(1, (1 - v) * 1.6) * PI / 2) * (.75 + .3 * hash(k + i * 5));
+      if (r < .6 || (clipTop !== undefined && p[1] - r < clipTop)) continue;
+      c.beginPath(); c.arc(p[0], p[1], r, 0, TAU); c.fill();
+      if (v > .25 && r > 1.5) { c.beginPath(); c.arc(p[0] + r * .9, p[1] + r * .25, r * .62, 0, TAU); c.fill(); }
+    }
+  }
+}
+function drawSteamInside(c, t) {
+  // clipped to the stall opening (below the noren hem, above the counter)
+  const n = ST.noren, ce = ST.cnt;
+  c.save();
+  const a = P(n.x0 - .1, n.h0 + .03, n.z), b = P(n.x1 + .1, n.h0 + .03, n.z), d = P(ce.x1, ce.h, ce.z0), e = P(ce.x0, ce.h, ce.z0);
+  pth(c, [[a[0], a[1] - 2], [b[0], b[1] - 2], [d[0], d[1] - 2], [e[0], e[1] - 2]]); c.clip();
+  steam(c, t, 3.77, 1.2, 6.05, 3, 11, .7, .03);
+  steam(c, t + 3, 3.28, 1.08, 6.05, 2, 23, .6, .022);
+  c.restore();
+}
+
+function drawCounter(c, t) {
+  const ce = ST.cnt, x0 = ST.x0, x1 = ST.x1, zf = ST.zf, zb = ST.zb;
+  // counter plank: top seen from above, front edge facing us
+  fill3(c, [[ce.x0, ce.h, ce.z0], [ce.x1, ce.h, ce.z0], [ce.x1, ce.h, ce.z1], [ce.x0, ce.h, ce.z1]], cream);   // scrubbed pale wood, a step up from the tarp
+  poly3(c, [[ce.x0, ce.h, ce.z1], [ce.x1, ce.h, ce.z1]], verm, 1);                 // back edge
+  fill3(c, [[ce.x0, ce.h - .05, ce.z0], [ce.x1, ce.h - .05, ce.z0], [ce.x1, ce.h, ce.z0], [ce.x0, ce.h, ce.z0]], verm);
+  poly3(c, [[ce.x0, ce.h, ce.z1], [ce.x1, ce.h, ce.z1]], navy, 1.4);               // back edge shadow line
+  // items on the counter (far to near)
+  // stack of clean bowls
+  for (let i = 0; i < 4; i++) { const h = ce.h + i * .045; cyl(c, 4.98, 5.6, .082, h, h + .06, cream, null, 22); strokeP(c, ring(4.98, h + .04, 5.6, .08, 18, PI, TAU), navy, 1); }
+  fillP(c, ring(4.98, ce.h + .195, 5.6, .082, 22), cream); fillP(c, ring(4.98, ce.h + .19, 5.6, .06, 22), must);
+  // condiments: soy pitcher, chili jar, pepper, chopstick canister
+  cyl(c, 4.3, 5.58, .036, ce.h, ce.h + .14, navy, slate, 18);
+  poly3(c, [[4.27, ce.h + .14, 5.58], [4.24, ce.h + .16, 5.57]], navy, 1.4);
+  cyl(c, 4.42, 5.55, .04, ce.h, ce.h + .07, verm, null, 18); cyl(c, 4.42, 5.55, .042, ce.h + .07, ce.h + .09, navy, slate, 18);
+  cyl(c, 4.52, 5.6, .025, ce.h, ce.h + .09, slate, cream, 14);
+  cyl(c, 4.64, 5.56, .045, ce.h, ce.h + .12, teal, navy, 18); strokeP(c, ring(4.64, ce.h + .09, 5.56, .046, 14, PI, TAU), cream, 1);
+  c.strokeStyle = cream; c.lineWidth = 1; c.beginPath(); for (const [dx, dz, lean] of [[-.02, 0, -.03], [0, .01, .0], [.015, -.01, .025], [.025, .005, .045]]) { const a = P(4.64 + dx, ce.h + .12, 5.56 + dz), b = P(4.64 + dx + lean, ce.h + .3, 5.56 + dz); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  // the last bowl of the night, just set down
+  cyl(c, 3.24, 5.5, .095, ce.h, ce.h + .085, verm, null, 26);
+  strokeP(c, ring(3.24, ce.h + .06, 5.5, .093, 22, PI, TAU), cream, 1.2);
+  fillP(c, ring(3.24, ce.h + .085, 5.5, .095, 26), verm);
+  fillP(c, ring(3.24, ce.h + .08, 5.5, .082, 26), must);
+  const nb = P(3.27, ce.h + .082, 5.48); c.fillStyle = cream; c.beginPath(); c.ellipse(nb[0], nb[1], 3, 1, 0, 0, TAU); c.fill();
+  // chopsticks on a rest in front of it
+  poly3(c, [[3.06, ce.h + .008, 5.4], [3.3, ce.h + .008, 5.37]], cream, 1);
+  poly3(c, [[3.06, ce.h + .008, 5.42], [3.3, ce.h + .008, 5.39]], cream, 1);
+  // steam from the bowl
+  steam(c, t + 1.7, 3.24, 1.06, 5.5, 2, 41, .55, .022, P(0, ST.noren.h0, ST.noren.z)[1] + 2);
+}
+
+function drawCart(c) {
+  const x0 = ST.x0, x1 = ST.x1, zf = ST.zf, zb = ST.zb;
+  // work board behind the counter (cook side)
+  fill3(c, [[x0 + .05, .86, zf + .3], [x1 - .05, .86, zf + .3], [x1 - .05, .86, zb], [x0 + .05, .86, zb]], verm);
+  // shadow under the cart
+  fill3(c, [[x0 - .05, .15, zf - .05], [x1 + .05, .15, zf - .05], [x1, .15, zb + .1], [x0, .15, zb + .1]], navy);
+  // front legs
+  for (const x of [x0 + .1, x1 - .1]) fill3(c, [[x - .03, .15, zf + .05], [x + .03, .15, zf + .05], [x + .03, .3, zf + .05], [x - .03, .3, zf + .05]], navy);
+  // left side panel (in shadow: own colour darkened with hatching)
+  const side = [[x0, .28, zf], [x0, .28, zb], [x0, .92, zb], [x0, .92, zf]];
+  fill3(c, side, verm); hatchIn(c, W3(side), navy, 2.6, -1.0, 1.1);
+  // wheel on the left side
+  const wz = 5.92, wh = .45, wr = .3, wx = x0 - .05;
+  { const g = P(wx, .15, wz); c.fillStyle = navy; c.beginPath(); c.ellipse(g[0], g[1], 7, 1.6, 0, 0, TAU); c.fill(); }
+  const rim = []; for (let i = 0; i <= 40; i++) { const a = i / 40 * TAU; rim.push(P(wx, wh + wr * Math.sin(a), wz + wr * Math.cos(a))); }
+  fillP(c, rim, navy);
+  const rin = []; for (let i = 0; i <= 40; i++) { const a = i / 40 * TAU; rin.push(P(wx, wh + wr * .82 * Math.sin(a), wz + wr * .82 * Math.cos(a))); }
+  fillP(c, rin, verm); hatchIn(c, rin, navy, 2.2, -1.0, 1);
+  c.strokeStyle = navy; c.lineWidth = 1.6; c.beginPath(); for (let i = 0; i < 8; i++) { const a = i / 8 * TAU + .2, p0 = P(wx - .01, wh, wz), p1 = P(wx - .01, wh + wr * .82 * Math.sin(a), wz + wr * .82 * Math.cos(a)); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); } c.stroke();
+  const hub = P(wx - .02, wh, wz); c.fillStyle = slate; c.beginPath(); c.ellipse(hub[0], hub[1], 2.2, 4, 0, 0, TAU); c.fill();
+  strokeP(c, rim.slice(30, 41), slate, 1);       // wet tyre edge
+  // front panel: lacquered planks
+  const fr = [[x0, .28, zf], [x1, .28, zf], [x1, .92, zf], [x0, .92, zf]];
+  fill3(c, fr, verm);
+  c.strokeStyle = navy; c.lineWidth = .9; c.beginPath(); for (let x = x0 + .2; x < x1; x += .2) { const a = P(x, .33, zf), b = P(x, .86, zf); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  fill3(c, [[x0, .28, zf], [x1, .28, zf], [x1, .34, zf], [x0, .34, zf]], navy);    // kick board
+  fill3(c, [[x0, .86, zf], [x1, .86, zf], [x1, .92, zf], [x0, .92, zf]], must);    // trim
+  // licence plate
+  fill3(c, [[4.84, .64, zf - .01], [5.14, .64, zf - .01], [5.14, .78, zf - .01], [4.84, .78, zf - .01]], cream);
+  const pl = (u, v) => P(4.86 + u, .765 - v, zf - .01);
+  drawText(c, 'NO 7', 0.03, .022, .085, { wt: .17, track: .1, ink: navy, map: pl, lw: 1.15 });
+}
+
+function drawPostsAndRoof(c, t) {
+  const R = ST.roof;
+  // front posts (dark wood, lit on their inner faces)
+  for (const [x, inner] of [[2.84, 1], [5.16, -1]]) {
+    const z = 5.52, w = .04, top = roofH(z);
+    fill3(c, [[x - w, ST.cnt.h, z], [x + w, ST.cnt.h, z], [x + w, top, z], [x - w, top, z]], navy);
+    poly3(c, [[x + inner * w * .8, .97, z], [x + inner * w * .8, top, z]], must, 1);
+  }
+  // side tarp on the left (teal canvas, one fold, a rope tie)
+  const tarp = [[2.66, .97, 5.25], [2.66, .97, 6.95], [2.66, roofH(6.95) - .15, 6.95], [2.66, roofH(5.25) - .15, 5.25]];
+  fill3(c, tarp, teal);
+  c.save(); pth(c, W3(tarp)); c.clip();
+  for (const z of [5.7, 6.25]) poly3(c, [[2.66, .97, z], [2.66, 2.8, z + .08]], navy, 1.2);
+  hatchRect(c, navy, 3, -1.1, .8, [P(2.66, 0, 6.95)[0], P(2.66, 2.9, 6.95)[1], P(2.66, 0, 6.2)[0], P(2.66, .97, 5.25)[1]]);
+  c.restore();
+  // roof top: striped canvas, stripes run front to back (to the VP)
+  const top = [[R.x0, R.hf, R.zf], [R.x1, R.hf, R.zf], [R.x1, R.hb, R.zb], [R.x0, R.hb, R.zb]];
+  fill3(c, top, cream);
+  const nS = 12, dx = (R.x1 - R.x0) / nS;
+  for (let i = 0; i < nS; i += 2) fill3(c, [[R.x0 + i * dx, R.hf, R.zf], [R.x0 + (i + 1) * dx, R.hf, R.zf], [R.x0 + (i + 1) * dx, R.hb, R.zb], [R.x0 + i * dx, R.hb, R.zb]], verm);
+  // rain darkening the far end of the canvas (stepped hatch)
+  hatchIn(c, W3([[R.x0, lerp(R.hf, R.hb, .55), lerp(R.zf, R.zb, .55)], [R.x1, lerp(R.hf, R.hb, .55), lerp(R.zf, R.zb, .55)], [R.x1, R.hb, R.zb], [R.x0, R.hb, R.zb]]), navy, 3, 0, 1);
+  poly3(c, [[R.x0, R.hb, R.zb], [R.x1, R.hb, R.zb]], navy, 1.5);
+  // side valance (left), stripes vertical
+  const sv = (z, d) => [R.x0, roofH(z) - d, z];
+  fill3(c, [sv(R.zf, 0), sv(R.zb, 0), sv(R.zb, .2), sv(R.zf, .2)], cream);
+  for (let i = 0; i < 10; i += 2) { const za = lerp(R.zf, R.zb, i / 10), zb = lerp(R.zf, R.zb, (i + 1) / 10); fill3(c, [sv(za, 0), sv(zb, 0), sv(zb, .2), sv(za, .2)], verm); }
+  hatchIn(c, W3([sv(R.zf, 0), sv(R.zb, 0), sv(R.zb, .2), sv(R.zf, .2)]), navy, 2.4, -1.1, 1);
+}
+
+function drawNoren(c, t) {
+  // indigo-teal shop curtain in four panels, the emblem split across the centre slit; hems lift in the wind
+  const n = ST.noren, z = n.z, nP = 4, pw = (n.x1 - n.x0) / nP, gap = .022;
+  // light leaks through the slits
+  const leak = [P(n.x0, n.h1, z), P(n.x1, n.h1, z), P(n.x1, n.h0, z), P(n.x0, n.h0, z)];
+  fillP(c, leak, must);
+  // the bulb hangs on its cord just below the curtain hem: a stepped glow (mustard ring, cream core) and a navy cap
+  { const b = P(...ST.bulb); line3(c, [ST.bulb[0], ST.bulb[1] + .03, ST.bulb[2]], [ST.bulb[0], 2.3, ST.bulb[2]], navy, 1.2);
+    burst(c, b[0], b[1] + 1, 6, 11, 12, cream, 1.8, 1, .2); rings(c, b[0], b[1] + 1, [[5.5, must], [3.4, cream]]);
+    c.fillStyle = navy; c.fillRect(b[0] - 1.6, b[1] - 3.6, 3.2, 2); }
+  const panels = [];
+  for (let i = 0; i < nP; i++) {
+    const a = n.x0 + i * pw + (i ? gap / 2 : 0), b = n.x0 + (i + 1) * pw - (i < nP - 1 ? gap / 2 : 0);
+    const sw = .022 + .02 * Math.sin(t * 1.15 + i * 1.3) + .01 * Math.sin(t * 2.9 + i * 2.1), lift = .012 * (1 + Math.sin(t * 1.6 + i));
+    const pts = [[a, n.h1, z], [b, n.h1, z], [b + sw, n.h0 + lift, z - .015], [a + sw, n.h0 + lift, z - .015]];
+    panels.push({ a, b, sw, lift, pts });
+    fill3(c, pts, teal);
+    // fold shadow and hem stitching
+    poly3(c, [[lerp(a, b, .62), n.h1 - .04, z], [lerp(a, b, .62) + sw * .9, n.h0 + lift + .03, z]], navy, 1);
+    poly3(c, [[a + sw + .02, n.h0 + lift + .035, z - .015], [b + sw - .02, n.h0 + lift + .035, z - .015]], cream, .7);
+  }
+  // emblem: a cream disc with a navy bowl and chopsticks, cut by the centre slit
+  const ec = [(n.x0 + n.x1) / 2, (n.h0 + n.h1) / 2 + .01];
+  for (const i of [1, 2]) {
+    const p = panels[i]; c.save(); fillP(c, W3(p.pts), teal); pth(c, W3(p.pts)); c.clip();
+    const sw = p.sw * .45, cx = ec[0] + sw, ctr = P(cx, ec[1], z), r = .1 * S(z);
+    c.fillStyle = cream; c.beginPath(); c.arc(ctr[0], ctr[1], r, 0, TAU); c.fill();
+    c.fillStyle = navy; c.beginPath(); c.moveTo(ctr[0] - r * .62, ctr[1] - r * .02); c.lineTo(ctr[0] + r * .62, ctr[1] - r * .02); c.quadraticCurveTo(ctr[0] + r * .55, ctr[1] + r * .55, ctr[0], ctr[1] + r * .58); c.quadraticCurveTo(ctr[0] - r * .55, ctr[1] + r * .55, ctr[0] - r * .62, ctr[1] - r * .02); c.fill();
+    c.strokeStyle = navy; c.lineWidth = 1.3; c.beginPath(); c.moveTo(ctr[0] - r * .1, ctr[1] - r * .12); c.lineTo(ctr[0] + r * .55, ctr[1] - r * .72); c.moveTo(ctr[0] + r * .05, ctr[1] - r * .1); c.lineTo(ctr[0] + r * .68, ctr[1] - r * .58); c.stroke();
+    c.strokeStyle = navy; c.lineWidth = 1; c.beginPath(); c.moveTo(ctr[0] - r * .45, ctr[1] - r * .2); c.quadraticCurveTo(ctr[0] - r * .6, ctr[1] - r * .45, ctr[0] - r * .4, ctr[1] - r * .7); c.stroke();
+    c.restore();
+  }
+  // rod pocket
+  fill3(c, [[n.x0 - .02, n.h1 - .035, z], [n.x1 + .02, n.h1 - .035, z], [n.x1 + .02, n.h1 + .01, z], [n.x0 - .02, n.h1 + .01, z]], navy);
+}
+
+function drawValance(c) {
+  const R = ST.roof, z = R.zf, top = R.hf, bot = R.hf - .2, nS = 12, dx = (R.x1 - R.x0) / nS;
+  // scalloped striped skirt
+  for (let i = 0; i < nS; i++) {
+    const xa = R.x0 + i * dx, xb = xa + dx, ink = i % 2 ? cream : verm;
+    const pts = [P(xa, top, z), P(xb, top, z), P(xb, bot + .02, z)];
+    for (let k = 0; k <= 8; k++) { const u = k / 8; pts.push(P(lerp(xb, xa, u), bot + .02 - Math.sin(u * PI) * .04, z)); }
+    fillP(c, pts, ink);
+  }
+  fill3(c, [[R.x0, top - .03, z], [R.x1, top - .03, z], [R.x1, top, z], [R.x0, top, z]], navy);
+  poly3(c, [[R.x0, top + .002, z], [R.x1, top + .002, z]], cream, 1);
+}
+
+// the wind blows left to right (it drives the rain and the steam): the lantern hangs a little downwind and swings about that
+function lanternState(t) { return -.07 + .04 * Math.sin(t * .9) + .016 * Math.sin(t * 2.3 + 1.1); }
+function drawLanternGlow(c, t) {
+  // the lantern's glow, behind the canopy: flat stepped rings that ride with the swing
+  const pv = P(LANT.px, LANT.ph, LANT.z), s = S(LANT.z), ang = lanternState(t), m = v => v * s;
+  { const top = m(.13), bot = m(.51), cy = (top + bot) / 2, rx = m(.155), cx = pv[0] - Math.sin(ang) * cy, cyy = pv[1] + Math.cos(ang) * cy;
+    c.save(); c.translate(cx, cyy);
+    burst(c, 0, 0, rx * 1.55, rx * 2.45, 18, must, 3.2, 1.1, .17); rings(c, 0, 0, [[rx * 1.38, verm]], 1, 1.12);   // flat starburst glow
+    c.restore(); }
+}
+function drawLantern(c, t) {
+  // bracket from the roof corner to the hook
+  // a short timber arm off the roof corner, braced from the front post, with an iron hook
+  fill3(c, [[ST.roof.x1 - .04, ST.roof.hf - .06, LANT.z], [LANT.px + .06, LANT.ph - .01, LANT.z], [LANT.px + .06, LANT.ph + .03, LANT.z], [ST.roof.x1 - .04, ST.roof.hf - .02, LANT.z]], verm);
+  poly3(c, [[ST.roof.x1 - .04, ST.roof.hf - .02, LANT.z], [LANT.px + .06, LANT.ph + .03, LANT.z]], must, 1);
+  { const hk = P(LANT.px, LANT.ph + .005, LANT.z); c.strokeStyle = cream; c.lineWidth = 1; c.beginPath(); c.arc(hk[0], hk[1], 1.8, 0, TAU); c.stroke(); }
+  const pv = P(LANT.px, LANT.ph, LANT.z), s = S(LANT.z), ang = lanternState(t);
+  const m = v => v * s;              // metres to px at the lantern's depth
+  c.save(); c.translate(pv[0], pv[1]); c.rotate(ang);
+  // cord, top cap
+  c.strokeStyle = navy; c.lineWidth = 1.2; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, m(.1)); c.stroke();
+  c.fillStyle = navy; c.fillRect(-m(.075), m(.1), m(.15), m(.035));
+  // paper body
+  const top = m(.13), bot = m(.51), cy = (top + bot) / 2, rx = m(.155), ry = (bot - top) / 2;
+  c.fillStyle = verm; c.beginPath(); c.ellipse(0, cy, rx, ry * 1.06, 0, 0, TAU); c.fill();
+  c.save(); c.beginPath(); c.ellipse(0, cy, rx, ry * 1.06, 0, 0, TAU); c.clip();
+  // lit core, stepped
+  c.fillStyle = must; c.beginPath(); c.ellipse(-rx * .08, cy + ry * .05, rx * .55, ry * .8, 0, 0, TAU); c.fill();
+  c.fillStyle = cream; c.beginPath(); c.ellipse(-rx * .12, cy + ry * .1, rx * .2, ry * .38, 0, 0, TAU); c.fill();
+  // bamboo ribs: horizontal circles above the eye, so their near arcs bow upward; minor axis from the projection
+  c.strokeStyle = navy; c.lineWidth = .8;
+  for (let k = 1; k < 9; k++) { const y = top + (bot - top) * k / 9, w = rx * Math.sqrt(1 - Math.pow((y - cy) / (ry * 1.06), 2)), hRib = LANT.ph - y / s, ryR = Math.max(.3, w * (hRib - EYE) / LANT.z); c.beginPath(); c.ellipse(0, y, w, ryR, 0, PI, TAU); c.stroke(); }
+  // shadowed right flank (away from the street side)
+  c.fillStyle = navy; c.globalAlpha = 1; c.beginPath(); c.ellipse(rx * .98, cy, rx * .28, ry * 1.1, 0, 0, TAU); c.fill();
+  c.restore();
+  // bottom cap and tassel
+  c.fillStyle = navy; c.fillRect(-m(.075), bot - 1, m(.15), m(.035));
+  c.strokeStyle = navy; c.lineWidth = 1; c.beginPath(); for (let k = -2; k <= 2; k++) { c.moveTo(k * 1.2, bot + m(.035)); c.lineTo(k * 1.4, bot + m(.12)); } c.stroke();
+  c.restore();
+}
+
+function drawStools(c) {
+  for (const x of [3.8, 4.62]) {
+    const z = 5.12, h = .66;
+    // contact shadows, legs (four, splayed slightly), seat
+    for (const [dx, dz] of [[-.11, -.09], [.11, -.09], [-.11, .09], [.11, .09]]) { const p = P(x + dx * 1.15, .15, z + dz * 1.15); c.fillStyle = navy; c.beginPath(); c.ellipse(p[0], p[1] + .5, 4, 1.2, 0, 0, TAU); c.fill(); }
+    for (const [dx, dz] of [[-.11, .09], [.11, .09], [-.11, -.09], [.11, -.09]]) poly3(c, [[x + dx * 1.15, .15, z + dz * 1.15], [x + dx * .8, h - .03, z + dz * .8]], dz > 0 ? navy : slate, 2.4);
+    strokeP(c, ring(x, .4, z, .13, 24, PI, TAU), slate, 1.4);           // footrest ring
+    cyl(c, x, z, .16, h - .045, h, verm, must, 30);
+    strokeP(c, ring(x, h, z, .16, 24, PI * 1.15, PI * 1.6), cream, 1);
+  }
+}
+
+function drawCrates(c) {
+  // gas bottle behind, two wooden bottle crates stacked beside the cart (open top crate full of empties)
+  cyl(c, 5.74, 6.5, .14, .15, .72, slate, null, 22);
+  fillP(c, ring(5.74, .72, 6.5, .14, 22), navy);
+  cyl(c, 5.74, 6.5, .03, .72, .8, teal, null, 10);
+  poly3(c, [[5.74, .78, 6.48], [5.55, .95, 6.35], [5.36, .9, 6.25]], navy, 1.4);
+  const front = (x0, x1, h0, h1, z) => {
+    fill3(c, [[x0, h0, z], [x1, h0, z], [x1, h1, z], [x0, h1, z]], must);
+    for (const u of [.33, .66]) { const hh = lerp(h0, h1, u); fill3(c, [[x0 + .03, hh - .018, z - .001], [x1 - .03, hh - .018, z - .001], [x1 - .03, hh + .018, z - .001], [x0 + .03, hh + .018, z - .001]], navy); }
+    for (const x of [x0, x1 - .035]) fill3(c, [[x, h0, z - .002], [x + .035, h0, z - .002], [x + .035, h1, z - .002], [x, h1, z - .002]], verm);
+    poly3(c, [[x0, h1, z], [x1, h1, z]], cream, 1);
+    fill3(c, [[x0 + .16, h1 - .07, z - .003], [x1 - .16, h1 - .07, z - .003], [x1 - .16, h1 - .03, z - .003], [x0 + .16, h1 - .03, z - .003]], navy);   // hand hole
+  };
+  // left side panels (the crates stand right of the VP, so their left sides show), own colour darkened
+  const side = (x, h0, h1, z0, z1) => { const q = [[x, h0, z0], [x, h0, z1], [x, h1, z1], [x, h1, z0]]; fill3(c, q, verm);
+    for (const u of [.33, .66]) { const hh = lerp(h0, h1, u); fill3(c, [[x, hh - .018, z0], [x, hh - .018, z1], [x, hh + .018, z1], [x, hh + .018, z0]], navy); }
+    poly3(c, [[x, h1, z0], [x, h1, z1]], must, 1); };
+  side(5.48, .15, .45, 5.62, 6.04); side(5.5, .45, .74, 5.66, 6.04);
+  // lower crate
+  fill3(c, [[5.48, .45, 5.62], [5.96, .45, 5.62], [5.96, .45, 6.04], [5.48, .45, 6.04]], must);
+  front(5.48, 5.96, .15, .45, 5.62);
+  // upper crate: dark interior, bottles, then the near wall
+  fill3(c, [[5.5, .74, 5.66], [5.94, .74, 5.66], [5.94, .74, 6.04], [5.5, .74, 6.04]], navy);
+  c.save(); c.beginPath(); c.rect(0, 0, W, H); W3([[5.34, .86, 5.3], [5.34, .86, 7.0], [5.34, roofH(7.0) - .05, 7.0], [5.34, roofH(5.3) - .05, 5.3]]).forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.closePath(); c.clip('evenodd');
+  for (let j = 2; j >= 0; j--) for (let i = 0; i < 4; i++) { const x = 5.565 + i * .105, z = 5.74 + j * .11; cyl(c, x, z, .028, .7, .8, j % 2 ? navy : slate, null, 10); cyl(c, x, z, .012, .8, .88, navy, null, 8); fillP(c, ring(x, .885, z, .014, 8), cream); }
+  c.restore();
+  front(5.5, 5.94, .45, .74, 5.66);
+}
+
+function drawBoard(c) {
+  // A-frame menu board, chalk on black, leaning back; lit by the lantern
+  const x0 = 5.68, x1 = 6.18, zB = 4.98, zT = 5.24, hT = 1.08;
+  const pt = (u, v) => [lerp(x0, x1, u), lerp(hT, .15, v), lerp(zT, zB, v)];   // u across, v down the face
+  const map = (u, v) => P(...pt(u, v));
+  // back legs (just visible beneath)
+  poly3(c, [[x0 + .03, .15, 5.5], [x0 + .03, hT, zT]], navy, 1.6); poly3(c, [[x1 - .03, .15, 5.5], [x1 - .03, hT, zT]], navy, 1.6);
+  for (const x of [x0 + .03, x1 - .03]) { const p = P(x, .15, zB); c.fillStyle = navy; c.beginPath(); c.ellipse(p[0], p[1], 4, 1.2, 0, 0, TAU); c.fill(); }
+  fillP(c, [map(0, 0), map(1, 0), map(1, 1), map(0, 1)], must);
+  fillP(c, [map(.08, .06), map(.92, .06), map(.92, .86), map(.08, .86)], navy);
+  // chalk menu (layout in board units: u∈[0,1] across, v∈[0,1] down)
+  const B = (u, v) => map(u, v);
+  const lines = [['RAMEN', .14, .085, must], ['SHOYU 6', .30, .062, cream], ['MISO 7', .43, .062, cream], ['GYOZA 4', .56, .062, cream], ['SAKE 3', .69, .062, cream]];
+  for (const [s, v, cap, ink] of lines) {
+    const asp = (x1 - x0) / hT;      // board is 0.5 m wide, 0.93 m tall: keep letters square
+    const mapL = (u, vv) => B(u, vv);
+    drawText(c, s, .5, v, cap, { wt: .16, track: .09, ink, map: (u, vv) => mapL(.5 + (u - .5) / asp, vv), align: 'center', lw: 1.15 });
+  }
+  // chalk strike: the gyoza are sold out
+  strokeP(c, [B(.2, .59), B(.8, .582)], cream, 1);
+  // chalk ledge
+  fillP(c, [map(.06, .86), map(.94, .86), map(.94, .9), map(.06, .9)], verm);
+}
+
+// ---- the customer, umbrella up, just arrived at the counter (back three-quarter view) ----
+const PZ = 5.02;
+function umbrellaGeom() {
+  // Just stepping in: the umbrella rests back over the left shoulder, still sheltering the back of the head, tipped out so
+  // its far edge passes clear below and left of the canopy (searched numerically: no contact, ~0.2 m gap, dome 0.47 m over the head)
+  const A = [2.24, 2.15, 4.6], hand = [2.47, 1.36, 5.08];
+  let u = [A[0] - hand[0], A[1] - hand[1], A[2] - hand[2]]; const ul = Math.hypot(...u); u = u.map(v => v / ul);
+  // basis perpendicular to the shaft
+  let e1 = [1 - u[0] * u[0], -u[0] * u[1], -u[0] * u[2]]; const l1 = Math.hypot(...e1); e1 = e1.map(v => v / l1);
+  const e2 = [u[1] * e1[2] - u[2] * e1[1], u[2] * e1[0] - u[0] * e1[2], u[0] * e1[1] - u[1] * e1[0]];
+  const Rr = .52, dh = .21, nR = 8;
+  const pt = (phi, s) => { const rr = Rr * s * (1 - .05 * Math.pow(Math.sin(nR / 2 * (phi - .3)), 2) * s), d = dh * s * s; return [A[0] - u[0] * d + rr * (Math.cos(phi) * e1[0] + Math.sin(phi) * e2[0]), A[1] - u[1] * d + rr * (Math.cos(phi) * e1[1] + Math.sin(phi) * e2[1]), A[2] - u[2] * d + rr * (Math.cos(phi) * e1[2] + Math.sin(phi) * e2[2])]; };
+  return { A, hand, u, e1, e2, pt, nR };
+}
+function drawPerson(c, t) {
+  const z = PZ, s = S(z), Pp = (x, h, zz = z) => P(x, h, zz);
+  const U = umbrellaGeom();
+  // shaft (behind the body where it starts at the hand)
+  const sh0 = P(...U.hand), sh1 = P(U.A[0] - U.u[0] * .2, U.A[1] - U.u[1] * .2, U.A[2] - U.u[2] * .2);
+  strokeP(c, [sh0, sh1], navy, 2);
+  // contact shadows under the shoes
+  { const p = P(2.625, .15, z + .02); c.fillStyle = navy; c.beginPath(); c.ellipse(p[0], p[1] + .5, 25, 3.2, 0, 0, TAU); c.fill(); }
+  // legs: trousers from the coat hem to the shoes; weight on the right leg, left knee eased
+  // slate trousers so the legs read against the dark cart; weight on the right leg, the left hip dropped and its knee eased
+  limb(c, [[2.545, .56, z + .02], [2.553, .38, z - .02], [2.53, .25, z + .04]], [.082, .066, .052], slate);
+  limb(c, [[2.71, .58, z], [2.715, .4, z], [2.72, .24, z]], [.085, .068, .056], slate);
+  poly3(c, [[2.553, .44, z - .02], [2.54, .3, z + .02]], navy, 1); poly3(c, [[2.705, .52, z], [2.71, .32, z]], navy, 1);   // creases
+  poly3(c, [[2.59, .4, z - .02], [2.57, .365, z - .02]], navy, 1);                              // fold behind the bent knee
+  // shoes from behind: upper narrowing to the ankle, a heel block, a lit sole edge; the left heel lifted off the paving
+  for (const [x, zz, lift] of [[2.53, z + .04, .012], [2.72, z, 0]]) {
+    const b0 = .15 + lift, q = (dx, h) => P(x + dx, h, zz);
+    fillP(c, [q(-.05, b0 + .07), q(.05, b0 + .07), q(.062, b0 + .025), q(-.062, b0 + .025)], navy);   // counter of the shoe
+    fillP(c, [q(-.042, b0 + .025), q(.042, b0 + .025), q(.04, b0), q(-.04, b0)], navy);                 // heel block
+    strokeP(c, [q(-.06, b0 + .026), q(.06, b0 + .026)], slate, 1.2);                                    // sole edge
+    strokeP(c, [q(-.03, b0 + .055), q(.03, b0 + .055)], cream, .9);                                     // heel-tab glint
+  }
+  // coat (navy trench), drawn as one silhouette over the skeleton
+  const coat = [[2.42, 1.46], [2.37, 1.40], [2.355, 1.27], [2.4, 1.11], [2.46, .98], [2.45, .89], [2.38, .52], [2.62, .53], [2.87, .55], [2.8, .9], [2.79, .99], [2.84, 1.16], [2.88, 1.41], [2.84, 1.46], [2.7, 1.5], [2.54, 1.5]];
+  const coatS = coat.map(([x, h]) => Pp(x, h));
+  c.beginPath(); coatS.forEach((p, i) => { const q = coatS[(i + 1) % coatS.length]; const m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; i ? c.quadraticCurveTo(p[0], p[1], m[0], m[1]) : c.moveTo(m[0], m[1]); }); c.closePath();
+  c.fillStyle = navy; c.fill();
+  c.save(); c.clip();
+  // back vent, belt, seam folds (slate)
+  poly3(c, [[2.62, .98, z], [2.625, .5, z]], slate, 1);
+  fill3(c, [[2.42, .96, z], [2.83, .96, z], [2.83, 1.02, z], [2.42, 1.02, z]], slate);
+  fill3(c, [[2.61, .955, z], [2.66, .955, z], [2.66, 1.025, z], [2.61, 1.025, z]], navy);
+  poly3(c, [[2.46, 1.32, z], [2.52, 1.08, z]], slate, 1); poly3(c, [[2.78, 1.3, z], [2.74, 1.06, z]], slate, 1);
+  poly3(c, [[2.5, .9, z], [2.47, .58, z]], slate, 1); poly3(c, [[2.74, .9, z], [2.79, .6, z]], slate, 1);
+  // yoke across the shoulders
+  poly3(c, [[2.38, 1.33, z], [2.62, 1.3, z], [2.87, 1.33, z]], slate, 1);
+  c.restore();
+  // rim light: the stall glow wraps the right edge of the figure
+  strokeP(c, coatS.slice(8, 13), must, 1.3);
+  // right arm (our right) reaching forward to the counter edge: tapered sleeve on shoulder–elbow–wrist
+  const armR = limb(c, [[2.85, 1.39, z], [2.95, 1.15, 5.1], [2.98, 1.0, 5.33]], [.056, .047, .039], navy);
+  strokeP(c, armR.map(p => [p[0] + .052 * s, p[1] - 1]), must, 1.1);                 // stall light on the sleeve
+  { const cf = P(2.98, 1.0, 5.33); strokeP(c, [[cf[0] - 5, cf[1] - 1], [cf[0] + 4, cf[1] - 2.5]], slate, 1); }   // cuff
+  { const hp = P(2.99, .985, 5.4); hand(c, hp[0], hp[1] - 1, 3.4, -.25, verm, 1, must); }   // hand flat on the counter, thumb toward us
+  // left arm (our left): elbow out, forearm rising to grip the shaft; the crook handle hangs below the fist
+  const U2 = U, hA = U2.hand, du = U2.u;
+  const crook = []; for (let i = 0; i <= 14; i++) { const u = i / 14; if (u < .55) crook.push([hA[0] - du[0] * .16 * u / .55, hA[1] - du[1] * .16 * u / .55, hA[2] - du[2] * .16 * u / .55]); else { const a = (u - .55) / .45 * PI, c0 = [hA[0] - du[0] * .16 + .035, hA[1] - du[1] * .16, hA[2] - du[2] * .16]; crook.push([c0[0] - Math.cos(a) * .035, c0[1] - Math.sin(a) * .035, c0[2]]); } }
+  strokeP(c, W3(crook), navy, 2.6); strokeP(c, W3(crook).map(p => [p[0] - .8, p[1]]), slate, .8);
+  const armL = limb(c, [[2.39, 1.39, z], [2.27, 1.13, 5.08], [hA[0] - .015, hA[1] - .03, hA[2]]], [.056, .047, .038], navy);
+  strokeP(c, [[armL[0][0] - .05 * s, armL[0][1] + 3], [armL[1][0] - .045 * s, armL[1][1]]], slate, 1);
+  { const hp = P(...hA); hand(c, hp[0] + .5, hp[1] + 1, 3.3, -1.25, verm, -1); strokeP(c, [[hp[0] - 2.5, hp[1] - 1.5], [hp[0] + 2.5, hp[1] - .5]], must, .8); }
+  // neck, head from behind: short cropped hair, right ear and cheek turned toward the cook
+  const hc = Pp(2.63, 1.635), hw = .083 * s, hh = .108 * s;
+  fill3(c, [[2.585, 1.47, z], [2.675, 1.47, z], [2.67, 1.58, z], [2.59, 1.58, z]], verm);
+  c.fillStyle = verm; c.beginPath(); c.ellipse(hc[0], hc[1], hw, hh, .12, 0, TAU); c.fill();
+  c.fillStyle = must; c.beginPath(); c.ellipse(hc[0] + hw * .78, hc[1] + hh * .1, hw * .3, hh * .62, .15, 0, TAU); c.fill();   // cheek catching the stall light
+  c.save(); c.beginPath(); c.ellipse(hc[0], hc[1], hw, hh, .12, 0, TAU); c.clip();
+  c.fillStyle = navy; c.beginPath();
+  c.moveTo(hc[0] - hw * 1.2, hc[1] + hh * .55); c.quadraticCurveTo(hc[0] - hw * .2, hc[1] + hh * .78, hc[0] + hw * .42, hc[1] + hh * .42);
+  c.quadraticCurveTo(hc[0] + hw * .55, hc[1] - hh * .1, hc[0] + hw * .9, hc[1] - hh * .45); c.lineTo(hc[0] + hw * 1.2, hc[1] - hh * 1.3); c.lineTo(hc[0] - hw * 1.3, hc[1] - hh * 1.3); c.closePath(); c.fill();
+  c.restore();
+  c.fillStyle = must; c.beginPath(); c.ellipse(hc[0] + hw * .5, hc[1] + hh * .12, 2.1, 3.4, .1, 0, TAU); c.fill();     // ear
+  c.fillStyle = verm; c.beginPath(); c.ellipse(hc[0] + hw * .5, hc[1] + hh * .14, .9, 2, .1, 0, TAU); c.fill();
+  c.strokeStyle = slate; c.lineWidth = .8; c.beginPath(); c.ellipse(hc[0] - hw * .1, hc[1] - hh * .1, hw * .62, hh * .66, .1, PI * 1.05, PI * 1.55); c.stroke();
+  // scarf wrapped at the neck, one end hanging down the back; turned-up collar either side
+  const sc = [[2.5, 1.44], [2.76, 1.44], [2.75, 1.52], [2.66, 1.545], [2.58, 1.545], [2.5, 1.52]].map(([x, h]) => Pp(x, h));
+  fillP(c, sc, verm);
+  c.save(); pth(c, sc); c.clip(); for (const h of [1.475, 1.505]) poly3(c, [[2.48, h, z], [2.78, h, z]], cream, 1); c.restore();
+  fill3(c, [[2.67, 1.47, z - .01], [2.745, 1.46, z - .01], [2.735, 1.32, z - .01], [2.665, 1.33, z - .01]], verm);
+  poly3(c, [[2.666, 1.35, z - .01], [2.737, 1.34, z - .01]], navy, 1);
+  for (const x of [2.675, 2.7, 2.725]) poly3(c, [[x, 1.33, z - .01], [x + .003, 1.29, z - .01]], verm, 1);
+  poly3(c, [[2.669, 1.4, z - .01], [2.742, 1.392, z - .01]], cream, 1); poly3(c, [[2.668, 1.37, z - .01], [2.74, 1.362, z - .01]], cream, 1);
+  fill3(c, [[2.46, 1.43, z - .005], [2.55, 1.44, z - .005], [2.545, 1.55, z - .005], [2.49, 1.57, z - .005]], navy);
+  fill3(c, [[2.8, 1.43, z - .005], [2.71, 1.44, z - .005], [2.715, 1.55, z - .005], [2.77, 1.57, z - .005]], navy);
+  strokeP(c, [Pp(2.77, 1.57), Pp(2.8, 1.43)], must, 1);
+  drawUmbrella(c, t, U);
+  return U;
+}
+function drawUmbrella(c, t, U) {
+  // outer dome faces us; draw visible gores far to near, then ribs, scalloped rim, ferrule
+  const cam = [0, EYE, 0], nR = U.nR, gores = [];
+  for (let k = 0; k < nR; k++) {
+    const p0 = k / nR * TAU + .3, p1 = (k + 1) / nR * TAU + .3, pts = [];
+    for (let i = 1; i <= 8; i++) pts.push(U.pt(p0, i / 8));                // up one rib (domed)
+    for (let i = 1; i < 6; i++) pts.push(U.pt(lerp(p0, p1, i / 6), 1));    // along the scalloped hem
+    for (let i = 8; i >= 1; i--) pts.push(U.pt(p1, i / 8));                // back down the next rib
+    const mid = U.pt((p0 + p1) / 2, .6), apex = U.A;
+    // outward normal ≈ (mid - centre of curvature); use mid - (A - u*0.9)
+    const cc = [apex[0] - U.u[0] * .9, apex[1] - U.u[1] * .9, apex[2] - U.u[2] * .9];
+    const nrm = [mid[0] - cc[0], mid[1] - cc[1], mid[2] - cc[2]], v = [cam[0] - mid[0], cam[1] - mid[1], cam[2] - mid[2]];
+    const facing = nrm[0] * v[0] + nrm[1] * v[1] + nrm[2] * v[2];
+    const lit = nrm[0] * .5 + nrm[1] * .8 + nrm[2] * .1;       // cool city light from above-left
+    gores.push({ k, pts, mid, facing, lit, depth: Math.hypot(...v) });
+  }
+  // every gore, far to near: outer faces in the lit/shadow inks, any inner (underside) faces in navy with their
+  // ribs and stretchers; the hem keeps its scallops because the outline is built from the gores themselves
+  const hub = [U.A[0] - U.u[0] * .36, U.A[1] - U.u[1] * .36, U.A[2] - U.u[2] * .36];
+  gores.sort((a, b) => b.depth - a.depth).forEach(g => {
+    const poly = [P(...U.A), ...g.pts.map(p => P(...p))];
+    fillP(c, poly, g.facing > 0 ? (g.lit > .3 ? teal : navy) : navy);
+    strokeP(c, g.pts.slice(7, 15).map(p => P(...p)), slate, 1);                              // hem of this gore
+    const phi = g.k / nR * TAU + .3, rib = []; for (let i = 0; i <= 8; i++) rib.push(P(...U.pt(phi, i / 8)));
+    strokeP(c, rib, g.facing > 0 && g.lit > .3 ? navy : slate, 1.1);
+    if (g.facing <= 0) strokeP(c, [P(...hub), P(...U.pt(phi, .55))], slate, 1);                 // stretcher seen from below
+  });
+  const hs = []; for (let k = 0; k < nR * 6; k++) hs.push(P(...U.pt(k / (nR * 6) * TAU + .3, 1)));
+  let xr = -1e9; for (const p of hs) xr = Math.max(xr, p[0]);
+  c.strokeStyle = must; c.lineWidth = 1.3; c.beginPath(); for (let i = 0; i < hs.length; i++) { const p = hs[i], q = hs[(i + 1) % hs.length]; if (p[0] > xr - 26 && q[0] > xr - 26) { c.moveTo(p[0], p[1]); c.lineTo(q[0], q[1]); } } c.stroke();   // stall light on the right edge
+  // ferrule
+  const ap = P(...U.A), ap2 = P(U.A[0] + U.u[0] * .09, U.A[1] + U.u[1] * .09, U.A[2] + U.u[2] * .09);
+  strokeP(c, [ap, ap2], navy, 2);
+  // rib tips (where the drips come from)
+  c.fillStyle = navy; for (let k = 0; k < nR; k++) { const q = P(...U.pt(k / nR * TAU + .3, 1.02)); c.fillRect(q[0] - 1, q[1] - 1, 2, 2); }
+}
+
+// ---- drips from the rib tips, splashes ----
+function drawDrips(c, t, U) {
+  for (let k = 0; k < U.nR; k++) {
+    const tip = U.pt(k / U.nR * TAU + .3, 1.02);
+    if (tip[2] > 5.0 && tip[0] > 2.6) continue;      // tips under the canopy stay dry
+    const period = .9 + hash(k * 3.3) * .7, ph = ((t + hash(k) * period) % period) / period;
+    const fallT = .45;
+    if (ph < .55) { const p = P(...tip); const r = 1 + ph * 1.8; c.fillStyle = cream; c.beginPath(); c.ellipse(p[0], p[1] + r, r * .8, r, 0, 0, TAU); c.fill(); }
+    else {
+      const u = (ph - .55) / fallT, hh = tip[1] - 9.8 * Math.pow(u * Math.sqrt(2 * tip[1] / 9.8), 2) / 2;   // free fall
+      const gh = tip[0] < 2.3 ? 0 : .15;             // the road, or the raised sidewalk, under this rib tip
+      if (hh > gh + .01) { const p = P(tip[0], hh, tip[2]), q = P(tip[0], hh + .06, tip[2]); strokeP(c, [q, p], cream, 1.4); }
+      else { const r = 2 + (u - .9) * 40; if (r > 0) strokeP(c, ring(tip[0], gh, tip[2], r / S(tip[2]), 16), cream, 1.1, true); }
+    }
+  }
+}
+function drawSplashes(c, t) {
+  // rings on the puddle, ticks on the wet street
+  const r = mul(7);
+  for (let i = 0; i < 46; i++) {
+    const per = .7 + r() * .9, off = r() * per, u = ((t + off) % per) / per, n = Math.floor((t + off) / per);
+    const rr = mul(i * 1000 + n);
+    const x = -1.0 + rr() * 2.0, z = 3.56 + rr() * .7;
+    if (i < 14) { if (!inPud(x, z)) continue; const rad = .02 + u * .1; strokeP(c, ring(x, 0, z, rad, 18), u < .5 ? cream : slate, .8, true); }
+    else { const xx = -3.4 + rr() * 5.6, zz = 3.4 + rr() * 9; if (inPud(xx, zz)) continue; if (u > .3) continue; const p = P(xx, 0, zz); c.strokeStyle = slate; c.lineWidth = 1; c.beginPath(); c.moveTo(p[0] - 3, p[1]); c.lineTo(p[0] - 1, p[1] - 3); c.moveTo(p[0] + 3, p[1]); c.lineTo(p[0] + 1, p[1] - 3); c.stroke(); }
+  }
+}
+function drawVent(c, t) {
+  // the street breathes too: vapour from the steam main drifts up and downwind from the vent cover
+  // billows: clusters of round puffs leave the grate, swell, lean downwind and break apart; slate vapour in one flat
+  // shape, a cream lit edge on the side toward the stall
+  const x0 = -1.75, z = 5.0, sc = S(z), N = 8, cl = [];
+  for (let k = 0; k < N; k++) {
+    const u = ((t * .14 + k / N) % 1), h = .08 + u * 1.0, x = x0 + u * .38 + Math.sin(u * 4 + t * .5 + k * 1.7) * .06;
+    const r = (.05 + u * .2) * sc * (u > .7 ? 1 - (u - .7) / .3 : 1), p = P(x, h, z);
+    if (r > 1) cl.push({ p, r, u, k });
+  }
+  c.fillStyle = slate; c.beginPath();
+  for (const { p, r, k } of cl) for (const [dx, dy, f] of [[-.7, .15, .72], [.62, .22, .66], [0, -.42, .7], [0, 0, 1]]) { const j = hash(k * 9 + dx) * .3; c.moveTo(p[0] + dx * r + r * f, p[1] + dy * r); c.arc(p[0] + dx * r * (1 + j), p[1] + dy * r, r * f, 0, TAU); }
+  c.fill();
+  c.strokeStyle = cream; c.lineWidth = 1.1;
+  for (const { p, r, u } of cl) if (u > .15 && u < .65) { c.beginPath(); c.arc(p[0] + .62 * r, p[1] + .22 * r, r * .66, -1.3, .1); c.stroke(); }
+}
+function drawGutters(c, t) {
+  // rain water running along both gutters; on the right it runs into the drain
+  const runs = [[-3.42, 3.4, 20, -1], [2.22, 3.4, 4.15, 1], [2.22, 4.8, 7.0, -1]];
+  c.lineWidth = 1.1;
+  for (const [x, z0, z1, dir] of runs) {
+    const sp = .55;
+    for (let z = z0; z < z1; z += sp) {
+      const zz = z0 + (((z - z0) + dir * t * .45) % (z1 - z0) + (z1 - z0)) % (z1 - z0), L = .22 + hash(z * 9) * .2;
+      if (zz + L > z1) continue;
+      const a = P(x + Math.sin(zz * 7) * .02, 0, zz), b = P(x, 0, zz + L);
+      c.strokeStyle = x > 0 && zz < 4.7 ? must : (hash(z * 3) > .7 ? cream : slate);
+      c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+    }
+  }
+}
+function inPud(x, z) { let ins = false; for (let i = 0, j = PUD.length - 1; i < PUD.length; j = i++) { const [xi, zi] = PUD[i], [xj, zj] = PUD[j]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) ins = !ins; } return ins; }
+function drawPuddleRipples(c, t) {
+  // ripple strokes of varied length that slide and break, not ruled lines
+  c.save(); pth(c, W3(PUD.map(([x, z]) => [x, 0, z]))); c.clip();
+  c.strokeStyle = navy; c.lineWidth = 1.1; c.beginPath();
+  for (let i = 0; i < 26; i++) {
+    const z = 3.58 + hash(i * 3.1) * .66, x = -1.1 + hash(i * 7.7) * 2.3 + Math.sin(t * .8 + i) * .06, L = .08 + hash(i * 5.3) * .3;
+    if (((t * .5 + hash(i)) % 1) > .8) continue;
+    const a = P(x, 0, z), b = P(x + L, 0, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+  }
+  c.stroke();
+  // the rain falling over the puddle, mirrored: streaks rising out of the water toward their falling twins
+  c.strokeStyle = slate; c.lineWidth = 1.4; c.beginPath();
+  for (let i = 0; i < 16; i++) { const z = 3.58 + hash(i * 1.9 + 4) * .62, x0 = -1.1 + hash(i * 6.1 + 2) * 2.3, u = ((t * 2.2 + hash(i * 3.3)) % 1), L = .1 + hash(i) * .12;
+    const a = P(x0 - u * .05, -(u * .5), z), b = P(x0 - u * .05 - L * RAIN_DX * .3, -(u * .5) - L, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); }
+  c.stroke(); c.restore();
+}
+
+// ---- beacon on the far tower ----
+function drawBeacon(c, t) { const on = (t % 2.4) < 1.1; if (on) { c.strokeStyle = verm; c.lineWidth = .9; c.beginPath(); c.arc(543, 140, 6, 0, TAU); c.stroke(); c.fillStyle = verm; c.beginPath(); c.arc(543, 140, 2.3, 0, TAU); c.fill(); } }
+
+// ---- frame and title band (paper, ink) ----
+function drawFrame(c) {
+  c.fillStyle = cream;
+  c.fillRect(0, 0, W, IMG.y0); c.fillRect(0, IMG.y1, W, H - IMG.y1); c.fillRect(0, 0, IMG.x0, H); c.fillRect(IMG.x1, 0, W - IMG.x1, H);
+  drawText(c, 'LATE NIGHT · NOODLES', W / 2, 784, 66, { wt: .25, track: .12, ink: navy, align: 'center' });
+  drawText(c, 'HOT BROTH · OPEN TILL THE LAST TRAIN', W / 2, 862, 17, { wt: .22, track: .42, ink: verm, align: 'center' });
+}
+
+// ======================================================================================
+// FRAME ASSEMBLY
+// ======================================================================================
+function drawScene(c, t) {
+  c.save(); pth(c, [[IMG.x0, IMG.y0], [IMG.x1, IMG.y0], [IMG.x1, IMG.y1], [IMG.x0, IMG.y1]]); c.clip();
+  const lantAng = lanternState(t), lpv = P(LANT.px, LANT.ph, LANT.z), lcy = .32 * S(LANT.z);
+  PROF.s('drawStreaks'); drawStreaks(c, t, { dx: -Math.sin(lantAng) * lcy }); PROF.e('drawStreaks');
+  PROF.s('drawBeacon'); drawBeacon(c, t); PROF.e('drawBeacon');
+  PROF.s('drawSign'); drawSign(c, t); PROF.e('drawSign');
+  PROF.s('drawRain'); drawRain(c, t, RAIN.far, false); PROF.e('drawRain');
+  PROF.s('drawLampPost'); sprite(c, 'lamp', [560, 180, 920, 560], g => { drawLampCone(g); drawLampPost(g, t, false); }); PROF.e('drawLampPost');
+  // the stall, back to front
+  PROF.s('drawStallBack'); drawStallBack(c, t); PROF.e('drawStallBack');
+  PROF.s('drawCrates'); drawCrates(c); PROF.e('drawCrates');
+  PROF.s('drawCook'); const cook = drawCook(c, t); PROF.e('drawCook');
+  PROF.s('drawPots'); drawPots(c, t, cook); PROF.e('drawPots');
+  PROF.s('drawSteamInside'); drawSteamInside(c, t); PROF.e('drawSteamInside');
+  PROF.s('drawCart'); drawCart(c); PROF.e('drawCart');
+  PROF.s('drawCounter'); drawCounter(c, t); PROF.e('drawCounter');
+  drawLanternGlow(c, t);
+  PROF.s('drawPostsAndRoof'); drawPostsAndRoof(c, t); PROF.e('drawPostsAndRoof');
+  poly3(c, [[5.16, 1.95, 5.52], [5.5, ST.roof.hf - .05, LANT.z]], verm, 2.2);   // lantern-arm brace from the front post, behind the valance
+  PROF.s('drawNoren'); drawNoren(c, t); PROF.e('drawNoren');
+  PROF.s('drawValance'); drawValance(c); PROF.e('drawValance');
+  PROF.s('drawLantern'); drawLantern(c, t); PROF.e('drawLantern');
+  PROF.s('drawStools'); drawStools(c); PROF.e('drawStools');
+  PROF.s('drawBoard'); drawBoard(c); PROF.e('drawBoard');
+  PROF.s('drawPerson'); const U = drawPerson(c, t); PROF.e('drawPerson');
+  PROF.s('drawPuddleRipples'); drawPuddleRipples(c, t); PROF.e('drawPuddleRipples');
+  PROF.s('drawGutters'); drawGutters(c, t); PROF.e('drawGutters');
+  PROF.s('drawSplashes'); drawSplashes(c, t); PROF.e('drawSplashes');
+  drawVent(c, t);
+  PROF.s('drawDrips'); drawDrips(c, t, U); PROF.e('drawDrips');
+  PROF.s('drawRain'); drawRain(c, t, RAIN.near, true); PROF.e('drawRain');
+  c.restore();
+  PROF.s('frame'); drawFrame(c); PROF.e('frame');
+}
+
+const PROF = { on: Q.has('prof'), acc: {}, t0: 0, s(n) { if (this.on) this.t0 = performance.now(); }, e(n) { if (this.on) this.acc[n] = (this.acc[n] || 0) + performance.now() - this.t0; } };
+// ---- sprite cache: static pieces drawn once per canvas size (halftone glows are many dots) ----
+const SPR = new Map();
+function sprite(c, key, bb, fn) {
+  let sp = SPR.get(key);
+  if (!sp) {
+    const [x0, y0, x1, y1] = bb, cnv = document.createElement('canvas');
+    cnv.width = Math.ceil((x1 - x0) * KSCALE); cnv.height = Math.ceil((y1 - y0) * KSCALE);
+    const g = cnv.getContext('2d'); g.setTransform(KSCALE, 0, 0, KSCALE, -x0 * KSCALE, -y0 * KSCALE); fn(g);
+    sp = { cnv, bb }; SPR.set(key, sp);
+  }
+  c.drawImage(sp.cnv, sp.bb[0], sp.bb[1], sp.bb[2] - sp.bb[0], sp.bb[3] - sp.bb[1]);
+}
+// ---- mount ----
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let KSCALE = 1, L0 = null;
+function size() {
+  const dpr = Math.min(DPRMAX, window.devicePixelRatio || 1), w = Math.round((cv.getBoundingClientRect().width || W) * dpr);
+  cv.width = w; cv.height = Math.round(w * H / W); KSCALE = w / W;
+  SPR.clear();
+  L0 = document.createElement('canvas'); L0.width = cv.width; L0.height = cv.height;
+  const c = L0.getContext('2d'); c.setTransform(KSCALE, 0, 0, KSCALE, 0, 0); drawStatic(c);
+}
+buildStreaks(); buildRain(); buildZones();
+size(); window.addEventListener('resize', size);
+function render(t) {
+  const t0 = performance.now();
+  PROF.s('blit'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L0, 0, 0); PROF.e('blit');
+  ctx.setTransform(KSCALE, 0, 0, KSCALE, 0, 0); drawScene(ctx, t);
+  cv.dataset.ms = Math.round(performance.now() - t0); cv.dataset.frames = (+cv.dataset.frames || 0) + 1;
+  if (PROF.on) cv.dataset.prof = JSON.stringify(Object.fromEntries(Object.entries(PROF.acc).map(([k, v]) => [k, +v.toFixed(1)])));
+}
+if (TFIX !== null) { render(TFIX); PROF.acc = {}; render(TFIX); }   // second pass measures steady-state cost
+else {
+  let last = -1;
+  const loop = now => { const t = now / 1000; if (t - last > 1 / 30) { last = t; render(t + 20); } requestAnimationFrame(loop); };
+  render(20); requestAnimationFrame(loop);
+}
+})();
+</script>
+</body>
+</html>
